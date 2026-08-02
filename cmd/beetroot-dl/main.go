@@ -40,7 +40,10 @@ type application struct {
 	interactive bool
 	errCount    atomic.Int64
 
+	// urls is read by the signal handler goroutine while the main loop
+	// mutates it, so every access goes through urlsMutex.
 	urls             []string
+	urlsMutex        sync.Mutex
 	activeFiles      map[string]struct{}
 	activeFilesMutex sync.RWMutex
 
@@ -50,6 +53,33 @@ type application struct {
 	downloadedMutex sync.Mutex
 
 	bp *beatport.Beatport
+}
+
+// addUrls queues URLs for the current pass.
+func (app *application) addUrls(urls ...string) {
+	app.urlsMutex.Lock()
+	defer app.urlsMutex.Unlock()
+	app.urls = append(app.urls, urls...)
+}
+
+// snapshotUrls returns a copy of the queue, safe to range over while the
+// signal handler is looking at it.
+func (app *application) snapshotUrls() []string {
+	app.urlsMutex.Lock()
+	defer app.urlsMutex.Unlock()
+	return append([]string(nil), app.urls...)
+}
+
+func (app *application) clearUrls() {
+	app.urlsMutex.Lock()
+	defer app.urlsMutex.Unlock()
+	app.urls = nil
+}
+
+func (app *application) hasUrls() bool {
+	app.urlsMutex.Lock()
+	defer app.urlsMutex.Unlock()
+	return len(app.urls) > 0
 }
 
 func (app *application) recordDownload(path string) {
@@ -180,7 +210,7 @@ func main() {
 
 		<-sigCh
 
-		if len(app.urls) > 0 {
+		if app.hasUrls() {
 			app.LogInfo("Shutdown signal received. Waiting for download workers to finish")
 			cancel()
 
@@ -206,7 +236,10 @@ func main() {
 	}
 
 	auth := beatport.NewAuth(cfg.Username, cfg.Password, cachePath)
-	bp := beatport.New(cfg.Proxy, auth)
+	bp, err := beatport.New(cfg.Proxy, auth)
+	if err != nil {
+		Fatal(interactive, "%s", err.Error())
+	}
 
 	app.LogVerbose("authenticating as %s", cfg.Username)
 	if err := auth.LoadCache(); err != nil {
@@ -228,19 +261,21 @@ func main() {
 		if strings.HasSuffix(arg, ".txt") {
 			app.parseTextFile(arg)
 		} else {
-			app.urls = append(app.urls, arg)
+			app.addUrls(arg)
 		}
 	}
 
 	for {
-		if len(app.urls) == 0 {
+		if !app.hasUrls() {
 			app.mainPrompt()
 		}
 
-		app.pbp = mpb.New(mpb.WithAutoRefresh(), mpb.WithOutput(color.Error))
-		app.activeFiles = make(map[string]struct{}, len(app.urls))
+		urls := app.snapshotUrls()
 
-		for _, url := range app.urls {
+		app.pbp = mpb.New(mpb.WithAutoRefresh(), mpb.WithOutput(color.Error))
+		app.activeFiles = make(map[string]struct{}, len(urls))
+
+		for _, url := range urls {
 			app.globalWorker(func() {
 				app.handleUrl(url)
 			})
@@ -253,7 +288,7 @@ func main() {
 			break
 		}
 
-		app.urls = []string{}
+		app.clearUrls()
 	}
 
 	app.printResults()

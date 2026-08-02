@@ -90,29 +90,63 @@ func (a *Auth) WriteCache() error {
 	return nil
 }
 
+// Check refreshes the token if it is within 5 minutes of expiring. The
+// expiry is re-tested after taking the write lock: without that, every worker
+// that queued on the lock would refresh again in turn, each one invalidating
+// the token the previous worker just fetched.
 func (a *Auth) Check(inst *Beatport) error {
-	currentTime := time.Now().Unix()
-	a.mutex.RLock()
-	tokenExpirationTime := a.tokenPair.IssuedAt + a.tokenPair.ExpiresIn
-	a.mutex.RUnlock()
-	if currentTime+300 >= tokenExpirationTime {
-		a.mutex.Lock()
-		fmt.Fprintln(os.Stderr, "Refreshing token")
-		if _, err := a.refresh(inst); err != nil {
-			if err = a.Init(inst); err != nil {
-				a.mutex.Unlock()
-				return fmt.Errorf("invalid token and authorization error: %w", err)
-			}
+	if !a.expiringSoon() {
+		return nil
+	}
+
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+
+	if !a.expiringSoonLocked() {
+		// Another worker refreshed while we waited for the lock.
+		return nil
+	}
+
+	fmt.Fprintln(os.Stderr, "Refreshing token")
+	if _, err := a.refresh(inst); err != nil {
+		if err = a.Init(inst); err != nil {
+			return fmt.Errorf("invalid token and authorization error: %w", err)
 		}
-		a.mutex.Unlock()
 	}
 	return nil
 }
 
+func (a *Auth) expiringSoon() bool {
+	a.mutex.RLock()
+	defer a.mutex.RUnlock()
+	return a.expiringSoonLocked()
+}
+
+// expiringSoonLocked requires the caller to hold the mutex (either mode).
+func (a *Auth) expiringSoonLocked() bool {
+	if a.tokenPair == nil {
+		return true
+	}
+	return time.Now().Unix()+300 >= a.tokenPair.IssuedAt+a.tokenPair.ExpiresIn
+}
+
+// AccessToken returns the current bearer token, or "" when there is none yet.
+func (a *Auth) AccessToken() string {
+	a.mutex.RLock()
+	defer a.mutex.RUnlock()
+	if a.tokenPair == nil {
+		return ""
+	}
+	return a.tokenPair.AccessToken
+}
+
+// Invalidate marks the current token as expired, so the next Check refreshes.
 func (a *Auth) Invalidate() {
 	a.mutex.Lock()
-	a.tokenPair.IssuedAt = 0
-	a.mutex.Unlock()
+	defer a.mutex.Unlock()
+	if a.tokenPair != nil {
+		a.tokenPair.IssuedAt = 0
+	}
 }
 
 func (a *Auth) Init(inst *Beatport) error {

@@ -110,7 +110,7 @@ func (app *application) handleCoverFile(path string) error {
 		return nil
 	}
 	if app.config.KeepCover && app.config.SortByContext {
-		newPath := filepath.Dir(path) + "/cover.jpg"
+		newPath := filepath.Join(filepath.Dir(path), "cover.jpg")
 		if err := os.Rename(path, newPath); err != nil {
 			return err
 		}
@@ -173,7 +173,7 @@ func (app *application) saveTrack(track *beatport.Track, directory string, quali
 			KeySystem:          app.config.KeySystem,
 		},
 	)
-	filePath := fmt.Sprintf("%s/%s%s", directory, fileName, fileExtension)
+	filePath := filepath.Join(directory, fileName+fileExtension)
 	if _, err := os.Stat(filePath); err == nil {
 		app.activeFilesMutex.RLock()
 		_, exists := app.activeFiles[filePath]
@@ -182,7 +182,7 @@ func (app *application) saveTrack(track *beatport.Track, directory string, quali
 		if exists {
 			i := 1
 			for {
-				filePath = fmt.Sprintf("%s/%s (%d)%s", directory, fileName, i, fileExtension)
+				filePath = filepath.Join(directory, fmt.Sprintf("%s (%d)%s", fileName, i, fileExtension))
 				if _, err := os.Stat(filePath); os.IsNotExist(err) {
 					break
 				}
@@ -223,12 +223,14 @@ func (app *application) saveTrack(track *beatport.Track, directory string, quali
 			return "", err
 		}
 	} else if stream != nil {
-		segments, key, err := getStreamSegments(stream.Url)
+		segments, key, err := app.getStreamSegments(stream.Url)
 		if err != nil {
 			return "", fmt.Errorf("get stream segments: %v", err)
 		}
-		segmentsFile, err := app.downloadSegments(directory, *segments, *key, prefix)
-		defer os.Remove(segmentsFile)
+		segmentsFile, err := app.downloadSegments(directory, segments, *key, prefix)
+		if segmentsFile != "" {
+			defer os.Remove(segmentsFile)
+		}
 		if err != nil {
 			return "", fmt.Errorf("download segments: %v", err)
 		}

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -66,6 +67,13 @@ var (
 		"openkey",
 		"camelot",
 	}
+
+	SupportedQualities = []string{
+		"medium-hls",
+		"medium",
+		"high",
+		"lossless",
+	}
 )
 
 func FFMPEGInstalled() bool {
@@ -103,6 +111,13 @@ func Parse(filePath string) (*AppConfig, error) {
 
 	if config.Username == "" || config.Password == "" {
 		return nil, fmt.Errorf("username or password is not provided")
+	}
+
+	// Without this an unrecognised quality silently fell through to the
+	// default download path, so a typo quietly changed what you got.
+	if !validator.PermittedValue(config.Quality, SupportedQualities...) {
+		return nil, fmt.Errorf("invalid quality %q (supported: %s)",
+			config.Quality, strings.Join(SupportedQualities, ", "))
 	}
 
 	if config.Quality == "medium-hls" && !FFMPEGInstalled() {
@@ -150,11 +165,19 @@ func (c *AppConfig) Save(filePath string) error {
 		return fmt.Errorf("could not create folder for configuration file: %w", err)
 	}
 
-	file, err := os.Create(filePath)
+	// 0600: this file holds the account password in plaintext, so it must not
+	// be readable by other users on the machine (os.Create would give 0644).
+	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return fmt.Errorf("create file: %w", err)
 	}
 	defer file.Close()
+
+	// O_CREATE only applies the mode to a *new* file, so tighten explicitly:
+	// anyone upgrading has an existing config left at 0644 by earlier versions.
+	if err := file.Chmod(0600); err != nil && !errors.Is(err, os.ErrPermission) {
+		return fmt.Errorf("tighten config file permissions: %w", err)
+	}
 
 	if err := toml.NewEncoder(file).Encode(c); err != nil {
 		return fmt.Errorf("encode config: %w", err)

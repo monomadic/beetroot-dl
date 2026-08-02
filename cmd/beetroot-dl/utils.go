@@ -17,6 +17,17 @@ import (
 	"strings"
 )
 
+// get issues a GET on the download client — the one that honours the
+// configured proxy — bound to the app context so Ctrl-C cancels transfers
+// already in flight.
+func (app *application) get(url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(app.ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	return app.bp.DownloadClient().Do(req)
+}
+
 func (app *application) downloadFile(url string, destination string, pbPrefix string) error {
 	out, err := os.Create(destination)
 	if err != nil {
@@ -24,7 +35,7 @@ func (app *application) downloadFile(url string, destination string, pbPrefix st
 	}
 	defer out.Close()
 
-	resp, err := http.Get(url)
+	resp, err := app.get(url)
 	if err != nil {
 		return fmt.Errorf("download file: %w", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"time"
@@ -15,9 +16,10 @@ const (
 )
 
 type Beatport struct {
-	client  *http.Client
-	headers map[string]string
-	auth    *Auth
+	client         *http.Client
+	downloadClient *http.Client
+	headers        map[string]string
+	auth           *Auth
 }
 
 type FetcherError struct {
@@ -45,12 +47,25 @@ type Facet struct {
 	Count int    `json:"count"`
 }
 
-func New(proxyUrl string, auth *Auth) *Beatport {
-	transport := &http.Transport{}
+// New builds the API client. An invalid proxy URL is an error rather than a
+// silent fallback to a direct connection: someone who configured a proxy would
+// not want their traffic quietly going out unproxied.
+func New(proxyUrl string, auth *Auth) (*Beatport, error) {
+	transport := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		TLSHandshakeTimeout:   15 * time.Second,
+		ResponseHeaderTimeout: 40 * time.Second,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+	}
 	if proxyUrl != "" {
-		proxyURL, _ := url.Parse(proxyUrl)
-		proxy := http.ProxyURL(proxyURL)
-		transport.Proxy = proxy
+		parsed, err := url.Parse(proxyUrl)
+		if err != nil {
+			return nil, fmt.Errorf("invalid proxy url %q: %w", proxyUrl, err)
+		}
+		transport.Proxy = http.ProxyURL(parsed)
 	}
 	headers := map[string]string{
 		"accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
@@ -67,12 +82,32 @@ func New(proxyUrl string, auth *Auth) *Beatport {
 				return http.ErrUseLastResponse
 			},
 		},
-		headers: headers,
+		// Media transfers share the transport — and therefore the proxy — but
+		// must not inherit the API client's 40s whole-request deadline, which
+		// a large FLAC would routinely exceed. The transport's dial and
+		// response-header timeouts still bound a stalled connection, and
+		// callers pass a context for cancellation.
+		downloadClient: &http.Client{Transport: transport},
+		headers:        headers,
 	}
-	return &f
+	return &f, nil
 }
 
+// DownloadClient is the client to use for track, cover and HLS-segment
+// transfers. Using it (rather than http.DefaultClient) is what keeps those
+// requests on the configured proxy.
+func (b *Beatport) DownloadClient() *http.Client {
+	return b.downloadClient
+}
+
+// fetch performs an authenticated request. A 401 triggers one re-auth and one
+// retry; a second 401 is returned as an error rather than retried, so a
+// persistently rejecting endpoint cannot spin forever re-logging-in.
 func (b *Beatport) fetch(method, endpoint string, payload interface{}, contentType string) (*http.Response, error) {
+	return b.fetchWithRetry(method, endpoint, payload, contentType, 1)
+}
+
+func (b *Beatport) fetchWithRetry(method, endpoint string, payload interface{}, contentType string, retriesLeft int) (*http.Response, error) {
 	var body bytes.Buffer
 
 	if endpoint != tokenEndpoint && endpoint != authEndpoint && endpoint != loginEndpoint {
@@ -111,8 +146,8 @@ func (b *Beatport) fetch(method, endpoint string, payload interface{}, contentTy
 		req.Header.Set("Content-Type", contentType)
 	}
 
-	if b.auth.tokenPair != nil {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", b.auth.tokenPair.AccessToken))
+	if token := b.auth.AccessToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	resp, err := b.client.Do(req)
@@ -121,9 +156,11 @@ func (b *Beatport) fetch(method, endpoint string, payload interface{}, contentTy
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound {
-		if resp.StatusCode == http.StatusUnauthorized && endpoint != tokenEndpoint && endpoint != authEndpoint && endpoint != loginEndpoint {
+		if resp.StatusCode == http.StatusUnauthorized && retriesLeft > 0 &&
+			endpoint != tokenEndpoint && endpoint != authEndpoint && endpoint != loginEndpoint {
+			resp.Body.Close()
 			b.auth.Invalidate()
-			return b.fetch(method, endpoint, payload, contentType)
+			return b.fetchWithRetry(method, endpoint, payload, contentType, retriesLeft-1)
 		}
 		defer resp.Body.Close()
 		response := &FetcherError{}

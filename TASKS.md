@@ -5,26 +5,26 @@ as they land; keep this file current when scope changes.
 
 ## P0 — Correctness and security
 
-- [ ] **Route all downloads through one configured HTTP client.**
+- [x] **Route all downloads through one configured HTTP client.**
   `cmd/beetroot-dl/utils.go` (`downloadFile`) and `cmd/beetroot-dl/needledrop.go`
   use bare `http.Get` — no timeout, and they bypass the `proxy` setting that
   the API client in `internal/beatport/beatport.go` honours. Track/cover/HLS
   traffic leaks the real IP when a proxy is configured, and a stalled
   connection hangs forever.
-- [ ] **Cap the 401 retry in `fetch`.** `internal/beatport/beatport.go` retries
+- [x] **Cap the 401 retry in `fetch`.** `internal/beatport/beatport.go` retries
   recursively on 401 with no bound — a persistent 401 loops forever,
   re-logging-in each time. One retry, then fail.
-- [ ] **Fix token data races.** `fetch` reads `auth.tokenPair.AccessToken`
+- [x] **Fix token data races.** `fetch` reads `auth.tokenPair.AccessToken`
   without the auth mutex; `Auth.Check` drops the read lock before taking the
   write lock, so concurrent workers can all trigger a refresh. Guard the read;
   make refresh single-flight (`resenje.org/singleflight` is already vendored).
-- [ ] **Write the config file 0600.** `config.Save` uses `os.Create` (0644) and
+- [x] **Write the config file 0600.** `config.Save` uses `os.Create` (0644) and
   the file contains the plaintext password. The credentials cache already gets
   0600 — match it.
-- [ ] **Validate CBC padding in `decryptSegment`** (`needledrop.go`). A
+- [x] **Validate CBC padding in `decryptSegment`** (`needledrop.go`). A
   malformed segment where the padding byte exceeds the segment length panics.
   Also check segment length is a multiple of the AES block size.
-- [ ] **Stop racing shared state from the signal handler.** The goroutine in
+- [x] **Stop racing shared state from the signal handler.** The goroutine in
   `main.go` reads `app.urls` and calls `printResults` while the main loop
   mutates them.
 
@@ -43,9 +43,10 @@ as they land; keep this file current when scope changes.
 - [ ] **Add CI.** No workflows exist. GitHub Actions running `go vet`,
   `go test`, `golangci-lint`, and a build on ubuntu + macos (both need the
   system `taglib` package for CGO). Add a release workflow later.
-- [ ] **Add tests** for the pure logic: `config.Parse`, the filename/dedup
-  logic in `saveTrack`, `ForPaginated`, and date normalisation in
-  `interactions.go`. Coverage today is two small util test files.
+- [ ] **Add tests** for the remaining pure logic: the filename/dedup logic in
+  `saveTrack`, `ForPaginated`, and date normalisation in `interactions.go`.
+  (Done so far: `config.Parse` and permissions, `decryptSegment`, the auth
+  token accessors, completions.)
 - [x] **Native `make build` target.** Added `build` / `install` / `test`
   targets that locate taglib via pkg-config (Homebrew-prefix fallback); the
   zig targets remain for release cross-builds.
@@ -56,19 +57,19 @@ as they land; keep this file current when scope changes.
   (`handlePlaylistLink` / `handleChartLink` / `handleLabelLink` /
   `handleArtistLink`) into a shared per-track helper. Copy-paste drift already
   exists — the chart handler's error says "handle playlist items".
-- [ ] **Propagate context into HTTP requests** so Ctrl-C cancels in-flight
-  downloads instead of waiting for them (`concurrency.go` only checks ctx
-  before a worker starts). Pairs with the shared-client P0 item.
+- [x] **Propagate context into HTTP requests** so Ctrl-C cancels in-flight
+  downloads instead of waiting for them. Done with the shared-client P0 item:
+  `app.get` builds every media request with `http.NewRequestWithContext`.
 - [ ] **Remove `os.Exit` from input helpers.** `GetLine` exits the process from
   deep inside, patched by the global `onExit` hook in `utils.go`. Return
   errors and decide in `main`.
-- [ ] **Path handling:** use `filepath.Join` instead of `fmt.Sprintf("%s/%s")`
+- [x] **Path handling:** use `filepath.Join` instead of `fmt.Sprintf("%s/%s")`
   in `saveTrack` and `handleCoverFile` (Windows is a build target).
-- [ ] **HLS temp file:** created 0755 and leaked on error (`downloadSegments`
+- [x] **HLS temp file:** created 0755 and leaked on error (`downloadSegments`
   returns `""` on failure so the caller's cleanup removes nothing).
-- [ ] **Validate `quality` in `config.Parse`** — a typo currently falls through
+- [x] **Validate `quality` in `config.Parse`** — a typo currently falls through
   silently to the default download path.
-- [ ] **Simplify `getStreamSegments` signature** — returns `*[]string,
+- [x] **Simplify `getStreamSegments` signature** — returns `*[]string,
   *StreamKey` for no reason.
 - [ ] **Strategic: consider dropping CGO taglib** for a pure-Go tagging path
   (only FLAC and M4A are written). Would eliminate the zig/SDK

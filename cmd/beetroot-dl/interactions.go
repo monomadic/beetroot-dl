@@ -101,7 +101,7 @@ func (app *application) mainPrompt() {
 		if strings.Contains(input, "/label/") || strings.Contains(input, "/artist/") {
 			app.filtersPrompt(input)
 		} else {
-			app.urls = append(app.urls, input)
+			app.addUrls(input)
 		}
 	} else {
 		app.search(input)
@@ -311,7 +311,7 @@ func (app *application) filtersPrompt(rawURL string) {
 
 			rawURL += paramsTotal
 
-			app.urls = append(app.urls, rawURL)
+			app.addUrls(rawURL)
 			return
 		}
 	}
@@ -435,17 +435,17 @@ func (app *application) search(input string) {
 		}
 
 		if nRes <= lastTrackNum {
-			app.urls = append(app.urls, results.Tracks[nRes-1].URL)
+			app.addUrls(results.Tracks[nRes-1].URL)
 			continue
 		}
 
 		if nRes <= lastReleaseNum {
-			app.urls = append(app.urls, results.Releases[nRes-1-lastTrackNum].URL)
+			app.addUrls(results.Releases[nRes-1-lastTrackNum].URL)
 			continue
 		}
 
 		if nRes <= lastLabelNum {
-			app.urls = append(app.urls, results.Labels[nRes-1-lastReleaseNum].StoreUrl())
+			app.addUrls(results.Labels[nRes-1-lastReleaseNum].StoreUrl())
 			continue
 		}
 	}
@@ -461,6 +461,6 @@ func (app *application) parseTextFile(path string) {
 	scanner.Split(bufio.ScanLines)
 
 	for scanner.Scan() {
-		app.urls = append(app.urls, scanner.Text())
+		app.addUrls(scanner.Text())
 	}
 }

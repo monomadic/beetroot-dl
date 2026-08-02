@@ -26,8 +26,8 @@ type StreamKey struct {
 	IV    []byte
 }
 
-func getStreamSegments(stream string) (*[]string, *StreamKey, error) {
-	resp, err := http.Get(stream)
+func (app *application) getStreamSegments(stream string) ([]string, *StreamKey, error) {
+	resp, err := app.get(stream)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -52,7 +52,10 @@ func getStreamSegments(stream string) (*[]string, *StreamKey, error) {
 			break
 		}
 		if i == 0 {
-			req, err := http.Get(base + segment.Key.URI)
+			if segment.Key == nil {
+				return nil, nil, errors.New("stream playlist has no encryption key")
+			}
+			req, err := app.get(base + segment.Key.URI)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -74,7 +77,7 @@ func getStreamSegments(stream string) (*[]string, *StreamKey, error) {
 		segments = append(segments, base+segment.URI)
 	}
 
-	return &segments, &streamKey, nil
+	return segments, &streamKey, nil
 }
 
 func decryptSegment(segment []byte, key StreamKey) ([]byte, error) {
@@ -82,20 +85,39 @@ func decryptSegment(segment []byte, key StreamKey) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// CryptBlocks panics on a short or misaligned input, and the PKCS#7
+	// padding byte is attacker-controlled data from the CDN — validate both
+	// rather than letting a malformed segment take the process down.
+	if len(segment) == 0 || len(segment)%block.BlockSize() != 0 {
+		return nil, fmt.Errorf("segment length %d is not a multiple of the %d-byte block size",
+			len(segment), block.BlockSize())
+	}
+	if len(key.IV) != block.BlockSize() {
+		return nil, fmt.Errorf("iv length %d does not match the %d-byte block size",
+			len(key.IV), block.BlockSize())
+	}
 	cbc := cipher.NewCBCDecrypter(block, key.IV)
 	decrypted := make([]byte, len(segment))
 	cbc.CryptBlocks(decrypted, segment)
-	padding := decrypted[len(decrypted)-1]
-	return decrypted[:len(decrypted)-int(padding)], nil
+	padding := int(decrypted[len(decrypted)-1])
+	if padding == 0 || padding > len(decrypted) {
+		return nil, fmt.Errorf("invalid padding length %d for a %d-byte segment", padding, len(decrypted))
+	}
+	return decrypted[:len(decrypted)-padding], nil
 }
 
 func (app *application) downloadSegments(path string, segmentUrls []string, key StreamKey, pbPrefix string) (string, error) {
 	tempFileName := uuid.New().String()
 	path = filepath.Join(path, tempFileName)
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0755)
+	// 0644, not 0755: this is a data file, it never needs to be executable.
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		return "", err
 	}
+	// Every failure below returns the path alongside the error so the caller's
+	// deferred os.Remove actually deletes the partial file — returning "" left
+	// it behind in the downloads directory.
+	defer file.Close()
 
 	var bar *mpb.Bar
 	var start time.Time
@@ -107,7 +129,7 @@ func (app *application) downloadSegments(path string, segmentUrls []string, key 
 
 	for _, segmentUrl := range segmentUrls {
 		if err := func() error {
-			resp, err := http.Get(segmentUrl)
+			resp, err := app.get(segmentUrl)
 			if err != nil {
 				return err
 			}
@@ -128,15 +150,14 @@ func (app *application) downloadSegments(path string, segmentUrls []string, key 
 			}
 			return nil
 		}(); err != nil {
-			return "", err
+			return path, err
 		}
 		if bar != nil {
 			bar.EwmaIncrInt64(1, time.Since(start))
 		}
 	}
-	err = file.Close()
-	if err != nil {
-		return "", err
+	if err := file.Close(); err != nil {
+		return path, err
 	}
 	return path, nil
 }
