@@ -3,49 +3,49 @@ package config
 import (
 	"errors"
 	"fmt"
+	"monomadic/beetport/internal/validator"
 	"os"
 	"os/exec"
 	"path"
-	"unspok3n/beatportdl/internal/validator"
 
-	"gopkg.in/yaml.v2"
+	"github.com/BurntSushi/toml"
 )
 
 type AppConfig struct {
-	Username      string `yaml:"username,omitempty"`
-	Password      string `yaml:"password,omitempty"`
-	Quality       string `yaml:"quality,omitempty"`
-	WriteErrorLog bool   `yaml:"write_error_log,omitempty"`
-	ShowProgress  bool   `yaml:"show_progress,omitempty"`
+	Username      string `toml:"username"`
+	Password      string `toml:"password"`
+	Quality       string `toml:"quality"`
+	WriteErrorLog bool   `toml:"write_error_log"`
+	ShowProgress  bool   `toml:"show_progress"`
 
-	MaxGlobalWorkers   int `yaml:"max_global_workers,omitempty"`
-	MaxDownloadWorkers int `yaml:"max_download_workers,omitempty"`
+	MaxGlobalWorkers   int `toml:"max_global_workers"`
+	MaxDownloadWorkers int `toml:"max_download_workers"`
 
-	DownloadsDirectory      string `yaml:"downloads_directory,omitempty"`
-	SortByContext           bool   `yaml:"sort_by_context,omitempty"`
-	SortByLabel             bool   `yaml:"sort_by_label,omitempty"`
-	ForceReleaseDirectories bool   `yaml:"force_release_directories,omitempty"`
-	TrackExists             string `yaml:"track_exists,omitempty"`
-	TrackNumberPadding      int    `yaml:"track_number_padding,omitempty"`
+	DownloadsDirectory      string `toml:"downloads_directory"`
+	SortByContext           bool   `toml:"sort_by_context"`
+	SortByLabel             bool   `toml:"sort_by_label"`
+	ForceReleaseDirectories bool   `toml:"force_release_directories"`
+	TrackExists             string `toml:"track_exists"`
+	TrackNumberPadding      int    `toml:"track_number_padding"`
 
-	ReleaseDirectoryTemplate  string `yaml:"release_directory_template,omitempty"`
-	PlaylistDirectoryTemplate string `yaml:"playlist_directory_template,omitempty"`
-	ChartDirectoryTemplate    string `yaml:"chart_directory_template,omitempty"`
-	LabelDirectoryTemplate    string `yaml:"label_directory_template,omitempty"`
-	ArtistDirectoryTemplate   string `yaml:"artist_directory_template,omitempty"`
-	TrackFileTemplate         string `yaml:"track_file_template,omitempty"`
-	WhitespaceCharacter       string `yaml:"whitespace_character,omitempty"`
-	ArtistsLimit              int    `yaml:"artists_limit,omitempty"`
-	ArtistsShortForm          string `yaml:"artists_short_form,omitempty"`
-	KeySystem                 string `yaml:"key_system,omitempty"`
+	ReleaseDirectoryTemplate  string `toml:"release_directory_template"`
+	PlaylistDirectoryTemplate string `toml:"playlist_directory_template"`
+	ChartDirectoryTemplate    string `toml:"chart_directory_template"`
+	LabelDirectoryTemplate    string `toml:"label_directory_template"`
+	ArtistDirectoryTemplate   string `toml:"artist_directory_template"`
+	TrackFileTemplate         string `toml:"track_file_template"`
+	WhitespaceCharacter       string `toml:"whitespace_character"`
+	ArtistsLimit              int    `toml:"artists_limit"`
+	ArtistsShortForm          string `toml:"artists_short_form"`
+	KeySystem                 string `toml:"key_system"`
 
-	CoverSize string `yaml:"cover_size,omitempty"`
-	KeepCover bool   `yaml:"keep_cover,omitempty"`
-	FixTags   bool   `yaml:"fix_tags,omitempty"`
+	CoverSize string `toml:"cover_size"`
+	KeepCover bool   `toml:"keep_cover"`
+	FixTags   bool   `toml:"fix_tags"`
 
-	TagMappings map[string]map[string]string `yaml:"tag_mappings,omitempty"`
+	TagMappings map[string]map[string]string `toml:"tag_mappings"`
 
-	Proxy string `yaml:"proxy,omitempty"`
+	Proxy string `toml:"proxy"`
 }
 
 const (
@@ -97,8 +97,7 @@ func Parse(filePath string) (*AppConfig, error) {
 		MaxGlobalWorkers:          15,
 		MaxDownloadWorkers:        15,
 	}
-	decoder := yaml.NewDecoder(file)
-	if err := decoder.Decode(&config); err != nil {
+	if _, err := toml.NewDecoder(file).Decode(&config); err != nil {
 		return nil, fmt.Errorf("failed to decode config file: %w", err)
 	}
 
@@ -157,8 +156,7 @@ func (c *AppConfig) Save(filePath string) error {
 	}
 	defer file.Close()
 
-	encoder := yaml.NewEncoder(file)
-	if err := encoder.Encode(&c); err != nil {
+	if err := toml.NewEncoder(file).Encode(c); err != nil {
 		return fmt.Errorf("encode config: %w", err)
 	}
 	return nil

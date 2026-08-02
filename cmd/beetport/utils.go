@@ -12,7 +12,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 )
@@ -151,36 +150,65 @@ func WorkingDirFilePath(fileName string) (string, error) {
 	return filePathCurrent, nil
 }
 
-func FindConfigFile() (string, bool, error) {
-	var additionalDirs []string
-
-	if runtime.GOOS == "linux" {
-		var additionalDir string
-		if xdgCfgHome, exists := os.LookupEnv("XDG_CONFIG_HOME"); exists {
-			additionalDir = path.Join(xdgCfgHome, "beatportdl")
-		} else {
-			additionalDir = path.Join(os.Getenv("HOME"), ".config", "beatportdl")
-		}
-		additionalDirs = append(additionalDirs, additionalDir)
+// ConfigDir is where the config and credential cache live by default:
+// $XDG_CONFIG_HOME/ (or ~/.config/) on every platform, not just Linux.
+func ConfigDir() string {
+	if xdgCfgHome, exists := os.LookupEnv("XDG_CONFIG_HOME"); exists && xdgCfgHome != "" {
+		return xdgCfgHome
 	}
-
-	return findFile(configFilename, additionalDirs)
+	return path.Join(os.Getenv("HOME"), ".config")
 }
 
-func FindCacheFile() (string, bool, error) {
-	var additionalDirs []string
+// DefaultConfigPath is the canonical location, reported by --help and used
+// when creating a config that does not exist yet.
+func DefaultConfigPath() string {
+	return path.Join(ConfigDir(), configFilename)
+}
 
-	if runtime.GOOS == "linux" {
-		var additionalDir string
-		if xdgCfgHome, exists := os.LookupEnv("XDG_STATE_HOME"); exists {
-			additionalDir = path.Join(xdgCfgHome, "beatportdl")
-		} else {
-			additionalDir = path.Join(os.Getenv("HOME"), ".local", "state", "beatportdl")
-		}
-		additionalDirs = append(additionalDirs, additionalDir)
+// FindConfigFile prefers ~/.config/beetport.toml. The working directory and
+// the executable's own directory are still honoured when they already hold a
+// config, so an existing portable/pinned-to-the-binary setup keeps working —
+// but a *new* config is always created in ConfigDir(), never spilled next to
+// the binary (which for a vendored/pinned binary may be a tracked repo).
+func FindConfigFile() (string, bool, error) {
+	filePathWorking, err := WorkingDirFilePath(configFilename)
+	if err != nil {
+		return "", false, err
+	}
+	filePathExec, err := ExecutableDirFilePath(configFilename)
+	if err != nil {
+		return "", false, err
 	}
 
-	return findFile(cacheFilename, additionalDirs)
+	for _, p := range []string{DefaultConfigPath(), filePathWorking, filePathExec} {
+		if _, err := os.Stat(p); err == nil {
+			return p, true, nil
+		}
+	}
+	return DefaultConfigPath(), false, nil
+}
+
+// FindCacheFile keeps the session token beside the config by default, but
+// follows an existing cache in the working/executable directory if the user
+// already has one there.
+func FindCacheFile() (string, bool, error) {
+	defaultPath := path.Join(ConfigDir(), cacheFilename)
+
+	filePathWorking, err := WorkingDirFilePath(cacheFilename)
+	if err != nil {
+		return "", false, err
+	}
+	filePathExec, err := ExecutableDirFilePath(cacheFilename)
+	if err != nil {
+		return "", false, err
+	}
+
+	for _, p := range []string{defaultPath, filePathWorking, filePathExec} {
+		if _, err := os.Stat(p); err == nil {
+			return p, true, nil
+		}
+	}
+	return defaultPath, false, nil
 }
 
 func FindErrorLogFile() (string, bool, error) {
