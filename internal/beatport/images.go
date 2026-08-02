@@ -9,10 +9,5 @@ type Image struct {
 }
 
 func (i *Image) FormattedUrl(size string) string {
-	return strings.Replace(
-		i.DynamicURI,
-		"{w}x{h}",
-		size,
-		-1,
-	)
+	return strings.ReplaceAll(i.DynamicURI, "{w}x{h}", size)
 }

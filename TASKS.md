@@ -40,9 +40,10 @@ as they land; keep this file current when scope changes.
 - [x] **Make the module path installable.** `monomadic/beetroot-dl` is not
   fetchable; rename to `github.com/monomadic/beetroot-dl` so `go install`
   works.
-- [ ] **Add CI.** No workflows exist. GitHub Actions running `go vet`,
-  `go test`, `golangci-lint`, and a build on ubuntu + macos (both need the
-  system `taglib` package for CGO). Add a release workflow later.
+- [x] **Add CI.** `.github/workflows/ci.yml` runs gofmt, a vendor-sync check,
+  build, vet and `go test -race` on ubuntu + macos, plus golangci-lint
+  (config in `.golangci.yml`, pinned to v2.6.2). A release workflow is still
+  TODO.
 - [ ] **Add tests** for the remaining pure logic: the filename/dedup logic in
   `saveTrack`, `ForPaginated`, and date normalisation in `interactions.go`.
   (Done so far: `config.Parse` and permissions, `decryptSegment`, the auth

@@ -42,9 +42,10 @@ func (k *Key) Display(system string) string {
 			number = k.CamelotNumber + 5
 		}
 		var letter string
-		if k.ChordType.Name == "Minor" {
+		switch k.ChordType.Name {
+		case "Minor":
 			letter = "m"
-		} else if k.ChordType.Name == "Major" {
+		case "Major":
 			letter = "d"
 		}
 		return strconv.Itoa(number) + letter

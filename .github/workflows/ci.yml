@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # CGO binding to taglib; the Makefile finds it via pkg-config.
+      - name: Install taglib (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libtag1-dev libtagc0-dev pkg-config
+
+      - name: Install taglib (macOS)
+        if: runner.os == 'macOS'
+        run: brew install taglib pkg-config
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l $(git ls-files '*.go' | grep -v '^vendor/'))" || { gofmt -l $(git ls-files '*.go' | grep -v '^vendor/'); exit 1; }
+
+      - name: Check vendor/ is in sync
+        run: go mod tidy && go mod vendor && git diff --exit-code -- go.mod go.sum vendor/
+
+      - name: Build
+        run: make build
+
+      - name: Vet
+        run: make vet
+
+      - name: Test (race)
+        run: make test GO_TEST_FLAGS=-race
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: sudo apt-get update && sudo apt-get install -y libtag1-dev libtagc0-dev pkg-config
+      # Pinned rather than 'latest' so a linter release cannot fail CI on a
+      # commit that did not change any code.
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.6.2

@@ -52,8 +52,8 @@ func TestDecryptSegmentRejectsMalformedInput(t *testing.T) {
 	key := testKey()
 
 	cases := map[string][]byte{
-		"empty":       {},
-		"misaligned":  bytes.Repeat([]byte{0x01}, 17),
+		"empty":      {},
+		"misaligned": bytes.Repeat([]byte{0x01}, 17),
 		"oversized padding": func() []byte {
 			block, _ := aes.NewCipher(key.Value)
 			// One block that decrypts to a trailing byte larger than the

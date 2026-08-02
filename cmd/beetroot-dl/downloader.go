@@ -337,14 +337,15 @@ func (app *application) tagTrack(location string, track *beatport.Track, coverPa
 		}
 	}
 
-	if fileExt == ".flac" {
+	switch fileExt {
+	case ".flac":
 		for field, property := range app.config.TagMappings["flac"] {
 			value := mappingValues[field]
 			if value != "" {
 				file.SetProperty(property, &value)
 			}
 		}
-	} else if fileExt == ".m4a" {
+	case ".m4a":
 		rawTags := make(map[string]string)
 
 		for field, property := range app.config.TagMappings["m4a"] {

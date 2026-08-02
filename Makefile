@@ -21,7 +21,9 @@ TAGLIB_CFLAGS ?= $(shell pkg-config --cflags taglib_c 2>/dev/null || echo -I$(sh
 TAGLIB_LDFLAGS ?= $(shell pkg-config --libs-only-L taglib_c 2>/dev/null || echo -L$(shell brew --prefix taglib 2>/dev/null || echo /usr/local)/lib)
 NATIVE_ENV = CGO_ENABLED=1 CGO_CFLAGS="$(TAGLIB_CFLAGS)" CGO_CXXFLAGS="$(TAGLIB_CFLAGS) -std=c++17" CGO_LDFLAGS="$(TAGLIB_LDFLAGS)"
 
-.PHONY: all build install test
+GO_TEST_FLAGS ?=
+
+.PHONY: all build install test vet
 
 all: darwin-arm64 darwin-amd64 linux-amd64 linux-arm64 windows-amd64
 
@@ -32,7 +34,10 @@ install:
 	$(NATIVE_ENV) go install -ldflags "-X main.version=$(VERSION)" $(BUILD_SRC)
 
 test:
-	$(NATIVE_ENV) go test ./...
+	$(NATIVE_ENV) go test $(GO_TEST_FLAGS) ./...
+
+vet:
+	$(NATIVE_ENV) go vet ./...
 
 darwin-arm64:
 	@echo "Building for macOS ARM64"

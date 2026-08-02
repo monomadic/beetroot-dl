@@ -86,7 +86,7 @@ func Setup(configPathOverride string, interactive bool) (cfg *config.AppConfig, 
 		return nil, configFilePath, fmt.Errorf("load config: %w", err)
 	}
 
-	cacheFilePath, exists, err := FindCacheFile()
+	cacheFilePath, _, err := FindCacheFile()
 	if err != nil {
 		return nil, configFilePath, fmt.Errorf("get executable path: %w", err)
 	}
@@ -453,10 +453,10 @@ func (app *application) search(input string) {
 
 func (app *application) parseTextFile(path string) {
 	file, err := os.Open(path)
-	defer file.Close()
 	if err != nil {
 		app.FatalError("read input text file", err)
 	}
+	defer file.Close()
 	scanner := bufio.NewScanner(file)
 	scanner.Split(bufio.ScanLines)
 

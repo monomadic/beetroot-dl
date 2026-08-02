@@ -1,0 +1,40 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+  settings:
+    errcheck:
+      check-blank: false
+      # None of these have an actionable failure path: writes to stderr and
+      # the error log are already the error-reporting path of last resort,
+      # and os.Remove is only ever used to clean up a temp file we are
+      # already abandoning.
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (*os.File).WriteString
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - fmt.Scanln
+        - os.Remove
+
+  exclusions:
+    rules:
+      # Deferred cleanup: the error is genuinely not actionable.
+      - linters: [errcheck]
+        source: '^\s*defer .*\.Close\(\)$'
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofmt
