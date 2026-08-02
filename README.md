@@ -1,6 +1,70 @@
-# BeatportDL
+# beetport
 
-Beatport & Beatsource downloader (FLAC, AAC)
+Beatport downloader (FLAC, AAC) — a fork of
+[unspok3beetport](https://github.com/unspok3beetport), reworked to
+behave like a normal unix command line tool.
+
+```shell
+beetport https://www.beatport.com/track/strobe/1696999
+```
+
+## What changed from upstream
+
+**Behaviour**
+
+| | upstream `beatportdl` | `beetport` |
+|---|---|---|
+| after a download | drops into an interactive prompt loop | exits |
+| interactive loop | always on | opt-in with `-i` |
+| `--help` | none | full usage screen |
+| flag parsing | after config load + login | before anything else |
+| exit status | always `0` | `0` ok, `1` failure, `2` usage, `130` interrupted |
+| downloaded paths | never reported | printed to stdout, one per line |
+| progress/errors/prompts | mixed into stdout | all on stderr |
+| config format | YAML | TOML |
+| config location | next to the binary | `~/.config/beetport.toml` |
+| `XDG_CONFIG_HOME` | Linux only | all platforms |
+| missing config, no tty | blocks forever on a prompt | fails with an explanation |
+| fatal error | "Press enter to exit" (blocks) | message on stderr, exits |
+
+**The point of most of it:** a run is now scriptable. stdout carries only
+results, so the output pipes; the exit status says whether it worked; and
+nothing waits on a human unless you asked for a prompt.
+
+```shell
+# cue every track you just bought, without guessing what was written where
+beetport "$URL" | while read -r f; do process "$f"; done || echo "something failed"
+```
+
+**Fixes**
+
+- **`--help` works on a fresh machine.** Flags were parsed *after* `Setup()`,
+  so asking for help on a box with no config would first interrogate you for
+  a username and password.
+- **Piped/cron runs no longer hang.** With no config and no terminal, the
+  first-run prompt would block forever; it now explains what to run instead.
+- **Panics in download workers are no longer swallowed.** They printed to
+  stdout and were discarded, so a crashed download still exited `0`. They are
+  now reported on stderr and counted.
+- **Results survive Ctrl-D.** Quitting a prompt called `os.Exit` deep inside
+  the input reader, so paths already downloaded were never printed.
+- **`Logging in` / `Refreshing token` no longer pollute stdout.**
+
+**Additions**
+
+- `-v` / `--verbose` — report each step (auth, resolve, fetch metadata,
+  target directory, write, tag) on stderr.
+- `-q` / `--quiet` — suppress progress bars.
+- `--config PATH` — use a specific config file.
+- `--version`.
+
+**Breaking**
+
+- The binary is `beetport`, not `beatportdl`.
+- Config is TOML at `~/.config/beetport.toml`; port an existing
+  `beatportdl-config.yml` by hand (`key: value` → `key = "value"`).
+- Upstream's `-q` meant "quit after finishing" — that is the default now, and
+  `-q` means `--quiet`.
 
 *Requires an active [Beatport](https://stream.beatport.com/) or [Beatsource](https://stream.beatsource.com/) streaming plan.*
 
@@ -8,22 +72,20 @@ Beatport & Beatsource downloader (FLAC, AAC)
 
 Setup
 ---
-1. [Download](https://github.com/unspok3n/beatportdl/releases/) or [build](#building) BeatportDL.
+1. [Download](https://github.com/unspok3beetport/releases/) or [build](#building) beetport.
 
-     *Compiled binaries for Windows, macOS (amd64, arm64) and Linux (amd64, arm64) are available on the [Releases](https://github.com/unspok3n/beatportdl/releases) page.* \
-     *Don't forget to set the execute permission on unix systems, e.g., chmod +x beatportdl-darwin-arm64*
+     *Compiled binaries for Windows, macOS (amd64, arm64) and Linux (amd64, arm64) are available on the [Releases](https://github.com/unspok3beetport/releases) page.* \
+     *Don't forget to set the execute permission on unix systems, e.g., chmod +x beetport-darwin-arm64*
 
-2. Run beatportdl (e.g. `./beatportdl-darwin-arm64`), then specify the:
+2. Run beetport with `-i` (e.g. `./beetport-darwin-arm64 -i`), then specify the:
    - Beatport username
    - Beatport password
    - Downloads directory
    - Audio quality
 
-3. OPTIONAL: Customize a config file. Create a new config file by running:
-```shell
-./beatportdl
-```
-This will create a new `beatportdl-config.yml` file. You can put the following options and values into the config file:
+3. OPTIONAL: Customize the config file at `~/.config/beetport.toml`
+   (or `$XDG_CONFIG_HOME/beetport.toml`), created on first run. It is TOML,
+   so values are `key = "value"`. You can put the following options into it:
 
 ---
 | Option                        | Default Value                             | Type       | Description                                                                                                                                                                               |
@@ -57,7 +119,7 @@ This will create a new `beatportdl-config.yml` file. You can put the following o
 | `key_system`                  | standard-short                            | String     | Music key system used in filenames and tags                                                                                                                                               |
 | `proxy`                       |                                           | String     | Proxy URL                                                                                                                                                                                 |
 
-If the Beatport credentials are correct, you should also see the file `beatportdl-credentials.json` appear in the BeatportDL directory.
+If the Beatport credentials are correct, you should also see the file `beetport-credentials.json` appear beside the config.
 *If you accidentally entered an incorrect password and got an error, you can always manually edit the config file*
 
 Download quality options, per Beatport/Beatsource subscription type:
@@ -145,21 +207,38 @@ Proxy URL format example: `http://username:password@127.0.0.1:8080`
 Usage
 ---
 
-Run BeatportDL and enter Beatport or Beatsource URL or search query:
+Give it a URL; it downloads and exits.
 ```shell
-./beatportdl
+beetport https://www.beatport.com/track/strobe/1696999
+```
+Multiple URLs, or text files of URLs (one per line), both work:
+```shell
+beetport https://www.beatport.com/track/strobe/1696999 https://www.beatport.com/track/move-for-me/591753
+beetport file.txt file2.txt
+```
+
+The path of each downloaded track goes to stdout, one per line, so a run
+composes with other tools:
+```shell
+beetport https://www.beatport.com/track/strobe/1696999 | while read -r f; do
+  echo "got: $f"
+done
+```
+Progress bars, errors and `-v` step reporting all go to stderr, and the exit
+status says whether it worked — so `beetport ... || echo failed` is
+meaningful.
+
+For the interactive prompt loop (search queries, label/artist filters), pass
+`-i`:
+```shell
+beetport -i
 Enter url or search query:
 ```
-By default, search returns the results from beatport, if you want to search on beatsource instead, include `@beatsource` tag in the query
+Search returns beatport results; include an `@beatsource` tag in the query to
+search beatsource instead. A search query needs `-i`, since picking a result
+requires a prompt.
 
-...or specify the URL using positional arguments:
-```shell
-./beatportdl https://www.beatport.com/track/strobe/1696999 https://www.beatport.com/track/move-for-me/591753
-```
-...or provide a text file with urls (separated by a newline)
-```shell
-./beatportdl file.txt file2.txt
-```
+Run `beetport --help` for the full flag list.
 
 URL types that are currently supported: **Tracks, Releases, Playlists, Charts, Labels, Artists**
 
@@ -170,11 +249,11 @@ Required dependencies:
 * [zlib](https://github.com/madler/zlib) >= 1.2.3
 * [Zig C/C++ Toolchain](https://github.com/ziglang/zig) >= 0.14.0
 
-BeatportDL uses [TagLib](https://taglib.org/) C bindings to handle audio metadata and therefore requires [CGO](https://go.dev/wiki/cgo)
+beetport uses [TagLib](https://taglib.org/) C bindings to handle audio metadata and therefore requires [CGO](https://go.dev/wiki/cgo)
 
 Makefile is adapted for cross-compilation and uses [Zig toolchain](https://github.com/ziglang/zig)
 
-To compile BeatportDL with Zig using Makefile, you must specify the paths to the C/C++ libraries folder and headers folder for the desired OS and architecture with `-L` (for libraries) and `-I` (for headers) flags using environment variables: `MACOS_ARM64_LIB_PATH`, `MACOS_AMD64_LIB_PATH`, `LINUX_AMD64_LIB_PATH`, `LINUX_ARM64_LIB_PATH`, `WINDOWS_AMD64_LIB_PATH`
+To compile beetport with Zig using Makefile, you must specify the paths to the C/C++ libraries folder and headers folder for the desired OS and architecture with `-L` (for libraries) and `-I` (for headers) flags using environment variables: `MACOS_ARM64_LIB_PATH`, `MACOS_AMD64_LIB_PATH`, `LINUX_AMD64_LIB_PATH`, `LINUX_ARM64_LIB_PATH`, `WINDOWS_AMD64_LIB_PATH`
 
 One line example *(for unix and unix-like os)*
 ```shell
