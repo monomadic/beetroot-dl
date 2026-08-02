@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/fatih/color"
+	"github.com/mattn/go-isatty"
 	"github.com/vbauerster/mpb/v8"
 	"github.com/vbauerster/mpb/v8/decor"
 	"io"
@@ -88,16 +89,39 @@ func ProgressBarOptions(prefix string) []mpb.BarOption {
 	return options
 }
 
+// isTerminal reports whether f is attached to a terminal, i.e. whether there
+// is a human who could answer a prompt. Note that a ModeCharDevice check is
+// NOT sufficient here: /dev/null is a character device too, so `< /dev/null`
+// would look interactive and the prompt would read EOF instead of a person.
+func isTerminal(f *os.File) bool {
+	return isatty.IsTerminal(f.Fd()) || isatty.IsCygwinTerminal(f.Fd())
+}
+
+// onExit runs just before the process leaves through an input-handling exit
+// path (Ctrl-D at a prompt, an unreadable stdin). Those paths call os.Exit
+// deep inside GetLine, so without this hook the run's results — the paths of
+// everything already downloaded — would never be printed.
+var onExit func()
+
+func exitNow(code int) {
+	if onExit != nil {
+		onExit()
+	}
+	os.Exit(code)
+}
+
 func GetLine() string {
 	reader := bufio.NewReader(os.Stdin)
 	input, err := reader.ReadString('\n')
 	if err != nil {
 		switch {
 		case errors.Is(err, io.EOF):
-			os.Exit(0)
+			// Ctrl-D at a prompt is a normal way to quit.
+			fmt.Fprintln(os.Stderr)
+			exitNow(0)
 		default:
 			fmt.Fprintf(os.Stderr, "read input string: %v\n", err)
-			os.Exit(1)
+			exitNow(1)
 		}
 	}
 	input = strings.TrimSuffix(input, "\n")
@@ -105,15 +129,32 @@ func GetLine() string {
 	return input
 }
 
+// Pause blocks for a keypress. Only ever called in interactive mode — a
+// non-interactive run must never hang waiting for a human (see Fatal).
 func Pause() {
 	fmt.Println("\nPress enter to exit")
 	fmt.Scanln()
 	os.Exit(1)
 }
 
+// Fatal reports an unrecoverable error and exits non-zero. In interactive mode
+// it pauses first, so a double-clicked window does not vanish before the error
+// can be read; otherwise it exits immediately, which is what a script needs.
+func Fatal(interactive bool, format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "beetport: "+format+"\n", args...)
+	if interactive {
+		Pause()
+	}
+	os.Exit(1)
+}
+
+// LogError writes to stderr (not stdout) so that machine-readable output —
+// the downloaded file paths — stays clean when piped, and counts the failure
+// so the process can exit non-zero.
 func (app *application) LogError(caller string, err error) {
+	app.errCount.Add(1)
 	message := fmt.Sprintf("%s: %s\n", caller, err.Error())
-	fmt.Fprint(app.logWriter, message)
+	fmt.Fprint(os.Stderr, message)
 
 	if app.logFile != nil {
 		app.logFile.WriteString(message)
@@ -125,9 +166,21 @@ func (app *application) LogInfo(info string) {
 	fmt.Fprint(app.logWriter, message)
 }
 
+// LogVerbose reports intermediate download steps, only under --verbose. It
+// goes to stderr for the same reason as LogError: stdout carries results.
+func (app *application) LogVerbose(format string, args ...any) {
+	if !app.verbose {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "  "+format+"\n", args...)
+}
+
 func (app *application) FatalError(caller string, err error) {
 	app.LogError(caller, err)
-	Pause()
+	if app.interactive {
+		Pause()
+	}
+	os.Exit(1)
 }
 
 func ExecutableDirFilePath(fileName string) (string, error) {

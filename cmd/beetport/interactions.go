@@ -4,32 +4,50 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"monomadic/beetport/config"
+	"monomadic/beetport/internal/beatport"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
-	"unspok3n/beatportdl/config"
-	"unspok3n/beatportdl/internal/beatport"
 )
 
 var (
 	ErrUnsupportedLinkType = errors.New("unsupported link type")
 )
 
-func Setup() (cfg *config.AppConfig, cachePath string, err error) {
-	configFilePath, exists, err := FindConfigFile()
-	if err != nil {
-		return nil, "", err
+func Setup(configPathOverride string, interactive bool) (cfg *config.AppConfig, cachePath string, err error) {
+	var configFilePath string
+	var exists bool
+
+	if configPathOverride != "" {
+		configFilePath = configPathOverride
+		if _, statErr := os.Stat(configFilePath); statErr != nil {
+			return nil, configFilePath, fmt.Errorf("config file not found: %s", configFilePath)
+		}
+		exists = true
+	} else {
+		configFilePath, exists, err = FindConfigFile()
+		if err != nil {
+			return nil, "", err
+		}
 	}
 
 	if !exists {
-		fmt.Println("Config file not found, creating a new one:", configFilePath)
+		// Creating a config means prompting for credentials, which can only
+		// happen with a human present. Failing loudly beats blocking forever
+		// on stdin inside a cron job or a pipeline.
+		if !interactive && !isTerminal(os.Stdin) {
+			return nil, configFilePath, fmt.Errorf(
+				"no config file at %s\ncreate one by running: beetport -i", configFilePath)
+		}
+		fmt.Fprintln(os.Stderr, "Config file not found, creating a new one:", configFilePath)
 
-		fmt.Print("Username: ")
+		fmt.Fprint(os.Stderr, "Username: ")
 		username := GetLine()
-		fmt.Print("Password: ")
+		fmt.Fprint(os.Stderr, "Password: ")
 		password := GetLine()
-		fmt.Print("Downloads directory: ")
+		fmt.Fprint(os.Stderr, "Downloads directory: ")
 		downloadsDir := GetLine()
 
 		cfg := &config.AppConfig{
@@ -38,9 +56,9 @@ func Setup() (cfg *config.AppConfig, cachePath string, err error) {
 			DownloadsDirectory: downloadsDir,
 		}
 
-		fmt.Println("1. Lossless (44.1 khz FLAC)\n2. High (256 kbps AAC)\n3. Medium (128 kbps AAC)\n4. Medium HLS (128 kbps AAC)")
+		fmt.Fprintln(os.Stderr, "1. Lossless (44.1 khz FLAC)\n2. High (256 kbps AAC)\n3. Medium (128 kbps AAC)\n4. Medium HLS (128 kbps AAC)")
 		for {
-			fmt.Print("Quality: ")
+			fmt.Fprint(os.Stderr, "Quality: ")
 			qualityNumber := GetLine()
 			switch qualityNumber {
 			case "1":
@@ -52,7 +70,7 @@ func Setup() (cfg *config.AppConfig, cachePath string, err error) {
 			case "4":
 				cfg.Quality = "medium-hls"
 			default:
-				fmt.Println("Invalid quality")
+				fmt.Fprintln(os.Stderr, "Invalid quality")
 				continue
 			}
 			break
@@ -77,7 +95,7 @@ func Setup() (cfg *config.AppConfig, cachePath string, err error) {
 }
 
 func (app *application) mainPrompt() {
-	fmt.Print("Enter url or search query: ")
+	fmt.Fprint(os.Stderr, "Enter url or search query: ")
 	input := GetLine()
 	if strings.HasPrefix(input, "https://www.beatport.com") {
 		if strings.Contains(input, "/label/") || strings.Contains(input, "/artist/") {
@@ -93,7 +111,7 @@ func (app *application) mainPrompt() {
 func (app *application) filtersPrompt(rawURL string) {
 	link, err := app.bp.ParseUrl(rawURL)
 	if err != nil {
-		fmt.Println("Could not parse URL:", err)
+		fmt.Fprintln(os.Stderr, "Could not parse URL:", err)
 		return
 	}
 
@@ -106,7 +124,7 @@ func (app *application) filtersPrompt(rawURL string) {
 		listItemName = "releases"
 		labelReleases, err := app.bp.GetLabelReleases(link.ID, 1, params)
 		if err != nil {
-			fmt.Println("Could not fetch label releases:", err)
+			fmt.Fprintln(os.Stderr, "Could not fetch label releases:", err)
 			return
 		}
 
@@ -115,7 +133,7 @@ func (app *application) filtersPrompt(rawURL string) {
 		listItemName = "tracks"
 		artistTracks, err := app.bp.GetArtistTracks(link.ID, 1, params)
 		if err != nil {
-			fmt.Println("Could not fetch artist tracks:", err)
+			fmt.Fprintln(os.Stderr, "Could not fetch artist tracks:", err)
 			return
 		}
 
@@ -124,7 +142,7 @@ func (app *application) filtersPrompt(rawURL string) {
 		return
 	}
 
-	fmt.Printf("\n%d %s total.\n", stats.total, listItemName)
+	fmt.Fprintf(os.Stderr, "\n%d %s total.\n", stats.total, listItemName)
 
 	genres := rankMap(stats.genres)
 	subgenres := rankMap(stats.subgenres)
@@ -149,7 +167,7 @@ func (app *application) filtersPrompt(rawURL string) {
 		case stepGenres:
 			sel, back := selectFromList("\nGenres", genres)
 			if back {
-				fmt.Println("Cancelled.")
+				fmt.Fprintln(os.Stderr, "Cancelled.")
 				return
 			}
 			selectedGenres = sel
@@ -186,7 +204,7 @@ func (app *application) filtersPrompt(rawURL string) {
 			step = stepDateFrom
 
 		case stepDateFrom:
-			fmt.Print("\nDownload from date (e.g. 1996 or 1996-06-01, Enter for all, b to go back): ")
+			fmt.Fprint(os.Stderr, "\nDownload from date (e.g. 1996 or 1996-06-01, Enter for all, b to go back): ")
 			input := strings.TrimSpace(GetLine())
 			if input == "b" {
 				if len(artists) > 0 {
@@ -202,7 +220,7 @@ func (app *application) filtersPrompt(rawURL string) {
 			step = stepDateTo
 
 		case stepDateTo:
-			fmt.Print("Download up to date   (e.g. 2024 or 2024-12-31, Enter for all, b to go back): ")
+			fmt.Fprint(os.Stderr, "Download up to date   (e.g. 2024 or 2024-12-31, Enter for all, b to go back): ")
 			input := strings.TrimSpace(GetLine())
 			if input == "b" {
 				step = stepDateFrom
@@ -212,21 +230,21 @@ func (app *application) filtersPrompt(rawURL string) {
 			step = stepConfirm
 
 		case stepConfirm:
-			fmt.Println("\n--- Download filter summary ---")
+			fmt.Fprintln(os.Stderr, "\n--- Download filter summary ---")
 			if len(selectedGenres) > 0 {
-				fmt.Println("  Genres:    ", strings.Join(selectedGenres, ", "))
+				fmt.Fprintln(os.Stderr, "  Genres:    ", strings.Join(selectedGenres, ", "))
 			} else {
-				fmt.Println("  Genres:     all")
+				fmt.Fprintln(os.Stderr, "  Genres:     all")
 			}
 			if len(selectedSubgenres) > 0 {
-				fmt.Println("  Subgenres: ", strings.Join(selectedSubgenres, ", "))
+				fmt.Fprintln(os.Stderr, "  Subgenres: ", strings.Join(selectedSubgenres, ", "))
 			} else {
-				fmt.Println("  Subgenres:  all")
+				fmt.Fprintln(os.Stderr, "  Subgenres:  all")
 			}
 			if len(selectedArtists) > 0 {
-				fmt.Println("  Artists:   ", strings.Join(selectedArtists, ", "))
+				fmt.Fprintln(os.Stderr, "  Artists:   ", strings.Join(selectedArtists, ", "))
 			} else {
-				fmt.Println("  Artists:    all")
+				fmt.Fprintln(os.Stderr, "  Artists:    all")
 			}
 			dateRange := "all time"
 			if dateFrom != "" && dateTo != "" {
@@ -236,16 +254,16 @@ func (app *application) filtersPrompt(rawURL string) {
 			} else if dateTo != "" {
 				dateRange = "up to " + dateTo
 			}
-			fmt.Println("  Dates:     ", dateRange)
+			fmt.Fprintln(os.Stderr, "  Dates:     ", dateRange)
 
-			fmt.Print("\nStart download? (y/n/b to go back): ")
+			fmt.Fprint(os.Stderr, "\nStart download? (y/n/b to go back): ")
 			ans := strings.ToLower(strings.TrimSpace(GetLine()))
 			if ans == "b" {
 				step = stepDateTo
 				continue
 			}
 			if ans != "y" {
-				fmt.Println("Cancelled.")
+				fmt.Fprintln(os.Stderr, "Cancelled.")
 				return
 			}
 
@@ -305,11 +323,11 @@ func selectFromList(heading string, entries []rankEntry) ([]string, bool) {
 	if len(entries) == 0 {
 		return nil, false
 	}
-	fmt.Printf("%s found:\n", heading)
+	fmt.Fprintf(os.Stderr, "%s found:\n", heading)
 	for i, e := range entries {
-		fmt.Printf("  %2d. %-42s %d tracks\n", i+1, e.name, e.count)
+		fmt.Fprintf(os.Stderr, "  %2d. %-42s %d tracks\n", i+1, e.name, e.count)
 	}
-	fmt.Print("Select (e.g. 1,3  |  * for all  |  Enter to skip  |  b to go back): ")
+	fmt.Fprint(os.Stderr, "Select (e.g. 1,3  |  * for all  |  Enter to skip  |  b to go back): ")
 	input := strings.TrimSpace(GetLine())
 
 	if input == "b" {
@@ -324,7 +342,7 @@ func selectFromList(heading string, entries []rankEntry) ([]string, bool) {
 		part = strings.TrimSpace(part)
 		n, err := strconv.Atoi(part)
 		if err != nil || n < 1 || n > len(entries) {
-			fmt.Printf("  (ignored invalid selection: %q)\n", part)
+			fmt.Fprintf(os.Stderr, "  (ignored invalid selection: %q)\n", part)
 			continue
 		}
 		selected = append(selected, entries[n-1].name)
@@ -374,14 +392,14 @@ func (app *application) search(input string) {
 	totalResultsLen := trackResultsLen + releasesResultsLen + labelsResultsLen
 
 	if totalResultsLen == 0 {
-		fmt.Println("No results found")
+		fmt.Fprintln(os.Stderr, "No results found")
 		return
 	}
 
-	fmt.Println("Search results:")
-	fmt.Println("[ Tracks ]")
+	fmt.Fprintln(os.Stderr, "Search results:")
+	fmt.Fprintln(os.Stderr, "[ Tracks ]")
 	for i, track := range results.Tracks {
-		fmt.Printf(
+		fmt.Fprintf(os.Stderr,
 			"%2d. %s - %s (%s) [%s]\n", i+1,
 			track.Artists.Display(app.config.ArtistsLimit, app.config.ArtistsShortForm),
 			track.Name.String(), track.MixName.String(), track.Length,
@@ -389,9 +407,9 @@ func (app *application) search(input string) {
 	}
 	lastTrackNum := trackResultsLen
 
-	fmt.Println("\n[ Releases ]")
+	fmt.Fprintln(os.Stderr, "\n[ Releases ]")
 	for i, release := range results.Releases {
-		fmt.Printf(
+		fmt.Fprintf(os.Stderr,
 			"%2d. %s - %s [%s]\n", i+lastTrackNum+1,
 			release.Artists.Display(app.config.ArtistsLimit, app.config.ArtistsShortForm),
 			release.Name.String(), release.Label.Name,
@@ -399,20 +417,20 @@ func (app *application) search(input string) {
 	}
 	lastReleaseNum := lastTrackNum + releasesResultsLen
 
-	fmt.Println("\n[ Labels ]")
+	fmt.Fprintln(os.Stderr, "\n[ Labels ]")
 	for i, label := range results.Labels {
-		fmt.Printf("%2d. %s\n", i+lastReleaseNum+1, label.Name)
+		fmt.Fprintf(os.Stderr, "%2d. %s\n", i+lastReleaseNum+1, label.Name)
 	}
 	lastLabelNum := lastReleaseNum + labelsResultsLen
 
-	fmt.Print("Enter the result number(s): ")
+	fmt.Fprint(os.Stderr, "Enter the result number(s): ")
 	input = GetLine()
 	requestedResults := strings.Split(input, " ")
 
 	for _, result := range requestedResults {
 		nRes, err := strconv.Atoi(result)
 		if err != nil || nRes <= 0 || nRes > totalResultsLen {
-			fmt.Printf("invalid result number: %s\n", result)
+			fmt.Fprintf(os.Stderr, "invalid result number: %s\n", result)
 			continue
 		}
 
