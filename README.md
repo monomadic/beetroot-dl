@@ -1,8 +1,13 @@
 # beetroot-dl
 
 Beatport downloader (FLAC, AAC) — a fork of
-[unspok3n/beatportdl](https://github.com/unspok3n/beatportdl), reworked to
-behave like a normal unix command line tool.
+[unspok3n/beatportdl](https://github.com/unspok3n/beatportdl) reworked:
+
+- **pure go** drops the dependencies on CGO, zig, etc and compiles in pure, simple go
+- behaves like a normal unix command line tool _(see 'Behavior')_
+- config file now follows convention instead of forcibly being
+    next to the binary
+- full completions for zsh/bash
 
 ```shell
 beetroot-dl https://www.beatport.com/track/strobe/1696999
@@ -80,8 +85,9 @@ beetroot-dl "$URL" | while read -r f; do process "$f"; done || echo "something f
 - TOML config at `~/.config/beetroot-dl.toml` instead of YAML next to the
   binary; `XDG_CONFIG_HOME` respected on all platforms.
 - Never blocks on a prompt in a pipe or cron job.
-- Pure Go — no CGO, so `go install` just works and cross-compiling needs no
-  C toolchain (upstream requires taglib headers and zig to build).
+- Pure Go — no CGO, so `go install .../cmd/beetroot-dl@latest` works on a
+  machine with nothing but Go, and cross-compiling needs no C toolchain
+  (upstream requires taglib headers and zig to build).
 
 *(Short for now — this list grows as [TASKS.md](TASKS.md) gets worked
 through.)*
@@ -271,21 +277,27 @@ URL types that are currently supported: **Tracks, Releases, Playlists, Charts, L
 Building
 ---
 
-Pure Go — no C toolchain, headers, or system libraries needed. Tagging uses
-[TagLib](https://taglib.org/) compiled to WebAssembly
+Pure Go — no C toolchain, headers, system libraries, or environment variables
+needed. Tagging uses [TagLib](https://taglib.org/) compiled to WebAssembly
 ([go.senan.xyz/taglib](https://github.com/sentriz/go-taglib)), embedded in the
 binary and run in-process.
 
-```shell
-make build     # → ./bin/beetroot-dl
-```
+Install straight from source (the main package is `./cmd/beetroot-dl`):
 
 ```shell
-make install   # → $(go env GOPATH)/bin/beetroot-dl
+go install github.com/monomadic/beetroot-dl/cmd/beetroot-dl@latest
 ```
 
-A bare `go build ./cmd/beetroot-dl` works too. Cross-compiling is standard Go:
-`make all` produces macOS (amd64/arm64), Linux (amd64/arm64) and Windows
-(amd64) binaries; any other target is just `GOOS=... GOARCH=... go build`.
+Or from a checkout:
+
+```shell
+go build -o beetroot-dl ./cmd/beetroot-dl
+```
+
+Cross-compiling is standard Go — `GOOS=... GOARCH=... go build`, nothing else.
+
+A Makefile exists for convenience: `make build` (version-stamped, into
+`./bin`), `make install`, `make test`, and `make all` for the five release
+targets (macOS amd64/arm64, Linux amd64/arm64, Windows amd64).
 
 `ffmpeg` is required at runtime only for the `medium-hls` quality setting.
