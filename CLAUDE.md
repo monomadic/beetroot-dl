@@ -40,15 +40,20 @@ path — see TASKS.md).
 ## Building and testing
 
 CGO + taglib means a plain `go build ./...` fails unless taglib headers are
-findable. On this machine (Homebrew):
+findable. Use the native Makefile targets, which locate taglib via
+pkg-config (falling back to the Homebrew prefix):
 
 ```bash
-CGO_CFLAGS="-I/opt/homebrew/include" CGO_CXXFLAGS="-I/opt/homebrew/include" CGO_LDFLAGS="-L/opt/homebrew/lib" go build ./...
+make build     # → ./bin/beetroot-dl
+make test      # go test ./... with the right CGO env
+make install   # go install into GOPATH/bin
 ```
 
-Same env for `go test ./...`. The Makefile targets are all zig-based
+The remaining Makefile targets (`all`, `darwin-arm64`, …) are zig-based
 cross-compiles for release binaries (see `.env.example` for the static lib
-paths they expect) — don't use them for a quick local build.
+paths they expect) — don't use them for a quick local build. Note the main
+package is `./cmd/beetroot-dl`; a bare `go install` at the repo root finds
+no Go files.
 
 ## Conventions
 

@@ -46,10 +46,9 @@ as they land; keep this file current when scope changes.
 - [ ] **Add tests** for the pure logic: `config.Parse`, the filename/dedup
   logic in `saveTrack`, `ForPaginated`, and date normalisation in
   `interactions.go`. Coverage today is two small util test files.
-- [ ] **Native `make build` target.** Every Makefile target requires zig and
-  runs `go clean -cache`; a plain host build currently needs manual
-  `CGO_CFLAGS`/`CGO_CXXFLAGS` pointing at taglib (e.g. Homebrew's
-  `/opt/homebrew/include`).
+- [x] **Native `make build` target.** Added `build` / `install` / `test`
+  targets that locate taglib via pkg-config (Homebrew-prefix fallback); the
+  zig targets remain for release cross-builds.
 
 ## P2 — Refactors and smaller fixes
 

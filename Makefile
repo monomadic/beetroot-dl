@@ -14,7 +14,25 @@ ZIG_CXX = zig c++
 
 MACOS_SDK_PATH ?= /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
 
+# Native host toolchain (build/install/test): taglib headers and libs are
+# found via pkg-config, falling back to Homebrew's prefix. The zig targets
+# below are only for release cross-builds.
+TAGLIB_CFLAGS ?= $(shell pkg-config --cflags taglib_c 2>/dev/null || echo -I$(shell brew --prefix taglib 2>/dev/null || echo /usr/local)/include)
+TAGLIB_LDFLAGS ?= $(shell pkg-config --libs-only-L taglib_c 2>/dev/null || echo -L$(shell brew --prefix taglib 2>/dev/null || echo /usr/local)/lib)
+NATIVE_ENV = CGO_ENABLED=1 CGO_CFLAGS="$(TAGLIB_CFLAGS)" CGO_CXXFLAGS="$(TAGLIB_CFLAGS) -std=c++17" CGO_LDFLAGS="$(TAGLIB_LDFLAGS)"
+
+.PHONY: all build install test
+
 all: darwin-arm64 darwin-amd64 linux-amd64 linux-arm64 windows-amd64
+
+build:
+	$(NATIVE_ENV) go build -ldflags "-X main.version=$(VERSION)" -o $(BUILD_DIR)/beetroot-dl $(BUILD_SRC)
+
+install:
+	$(NATIVE_ENV) go install -ldflags "-X main.version=$(VERSION)" $(BUILD_SRC)
+
+test:
+	$(NATIVE_ENV) go test ./...
 
 darwin-arm64:
 	@echo "Building for macOS ARM64"

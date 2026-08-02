@@ -268,6 +268,26 @@ URL types that are currently supported: **Tracks, Releases, Playlists, Charts, L
 
 Building
 ---
+
+### For this machine
+
+With [TagLib](https://taglib.org/) >= 2.0 installed (e.g. `brew install taglib`),
+the Makefile finds it via pkg-config (falling back to the Homebrew prefix):
+
+```shell
+make build     # → ./bin/beetroot-dl
+```
+
+```shell
+make install   # → $(go env GOPATH)/bin/beetroot-dl
+```
+
+`make test` runs the tests with the same setup. A bare `go install ./cmd/beetroot-dl`
+also works if the taglib headers are on your compiler's default search path —
+the Makefile targets exist because Homebrew's usually aren't.
+
+### Release cross-builds
+
 Required dependencies:
 * [TagLib](https://github.com/taglib/taglib) >= 2.0
 * [zlib](https://github.com/madler/zlib) >= 1.2.3
