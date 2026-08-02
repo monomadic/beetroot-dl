@@ -5,15 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	"monomadic/beetport/config"
+	"monomadic/beetport/internal/beatport"
+	"monomadic/beetport/internal/taglib"
 	"os"
 	"path/filepath"
 	"resenje.org/singleflight"
 	"strconv"
 	"strings"
 	"sync"
-	"unspok3n/beatportdl/config"
-	"unspok3n/beatportdl/internal/beatport"
-	"unspok3n/beatportdl/internal/taglib"
 )
 
 func (app *application) errorLogWrapper(url, step string, err error) {
@@ -131,6 +131,8 @@ func (app *application) saveTrack(track *beatport.Track, directory string, quali
 	var stream *beatport.TrackStream
 	var download *beatport.TrackDownload
 
+	app.LogVerbose("requesting stream for %s (%s)", track.Name.String(), track.MixName.String())
+
 	switch app.config.Quality {
 	case "medium-hls":
 		trackStream, err := app.bp.StreamTrack(track.ID)
@@ -189,9 +191,11 @@ func (app *application) saveTrack(track *beatport.Track, directory string, quali
 		} else {
 			switch app.config.TrackExists {
 			case "skip":
+				app.LogVerbose("already present, skipping: %s", filePath)
 				return "", nil
 			case "update":
 				app.infoLogWrapper(track.StoreUrl(), "updating tags")
+				app.LogVerbose("already present, updating tags: %s", filePath)
 				return filePath, nil
 			case "error":
 				return "", ErrTrackFileExists
@@ -208,8 +212,10 @@ func (app *application) saveTrack(track *beatport.Track, directory string, quali
 	if app.config.ShowProgress {
 		prefix = infoDisplay
 	} else {
-		fmt.Println("Downloading " + infoDisplay)
+		fmt.Fprintln(os.Stderr, "Downloading "+infoDisplay)
 	}
+
+	app.LogVerbose("writing to %s", filePath)
 
 	if download != nil {
 		if err := app.downloadFile(download.Location, filePath, prefix); err != nil {
@@ -233,7 +239,7 @@ func (app *application) saveTrack(track *beatport.Track, directory string, quali
 	}
 
 	if !app.config.ShowProgress {
-		fmt.Printf("Finished downloading %s\n", infoDisplay)
+		fmt.Fprintf(os.Stderr, "Finished downloading %s\n", infoDisplay)
 	}
 
 	return filePath, nil
@@ -390,6 +396,12 @@ func (app *application) handleTrack(track *beatport.Track, downloadsDir string, 
 	if err = app.tagTrack(location, track, coverPath); err != nil && location != "" {
 		return fmt.Errorf("tag track: %v", err)
 	}
+	// An empty location means the track was skipped as already-present; there
+	// is no new file to report.
+	if location != "" {
+		app.LogVerbose("tagged %s", location)
+		app.recordDownload(location)
+	}
 	return nil
 }
 
@@ -433,6 +445,8 @@ func (app *application) handleUrl(url string) {
 		return
 	}
 
+	app.LogVerbose("resolved %s -> %s id=%d", url, link.Type, link.ID)
+
 	switch link.Type {
 	case beatport.TrackLink:
 		app.handleTrackLink(link)
@@ -452,12 +466,14 @@ func (app *application) handleUrl(url string) {
 }
 
 func (app *application) handleTrackLink(link *beatport.Link) {
+	app.LogVerbose("fetching track metadata (id=%d)", link.ID)
 	track, err := app.bp.GetTrack(link.ID)
 	if err != nil {
 		app.errorLogWrapper(link.Original, "fetch track", err)
 		return
 	}
 
+	app.LogVerbose("fetching release metadata (id=%d)", track.Release.ID)
 	release, err := app.bp.GetRelease(track.Release.ID)
 	if err != nil {
 		app.errorLogWrapper(link.Original, "fetch track release", err)
@@ -470,6 +486,7 @@ func (app *application) handleTrackLink(link *beatport.Link) {
 		app.errorLogWrapper(link.Original, "setup downloads directory", err)
 		return
 	}
+	app.LogVerbose("downloads directory: %s", downloadsDir)
 
 	wg := sync.WaitGroup{}
 	app.downloadWorker(&wg, func() {
@@ -829,7 +846,7 @@ func (app *application) handleArtistLink(link *beatport.Link) {
 				}
 				return release, nil
 			})
-			
+
 			if err != nil {
 				app.errorLogWrapper(trackStoreUrl, "fetch track release", err)
 				return

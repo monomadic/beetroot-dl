@@ -13,8 +13,10 @@ func (app *application) globalWorker(fn func()) {
 		defer app.wg.Done()
 		defer app.semRelease(app.globalSem)
 		defer func() {
+			// A panic in a worker must not vanish into stdout: report it on
+			// stderr and count it, so the process still exits non-zero.
 			if err := recover(); err != nil {
-				fmt.Printf(fmt.Errorf("%s", err).Error())
+				app.LogError("worker panic", fmt.Errorf("%s", err))
 			}
 		}()
 		fn()
@@ -36,8 +38,10 @@ func (app *application) downloadWorker(wg *sync.WaitGroup, fn func()) {
 		defer app.semRelease(app.downloadSem)
 
 		defer func() {
+			// A panic in a worker must not vanish into stdout: report it on
+			// stderr and count it, so the process still exits non-zero.
 			if err := recover(); err != nil {
-				fmt.Printf(fmt.Errorf("%s", err).Error())
+				app.LogError("worker panic", fmt.Errorf("%s", err))
 			}
 		}()
 		fn()

@@ -97,7 +97,7 @@ func (a *Auth) Check(inst *Beatport) error {
 	a.mutex.RUnlock()
 	if currentTime+300 >= tokenExpirationTime {
 		a.mutex.Lock()
-		fmt.Println("Refreshing token")
+		fmt.Fprintln(os.Stderr, "Refreshing token")
 		if _, err := a.refresh(inst); err != nil {
 			if err = a.Init(inst); err != nil {
 				a.mutex.Unlock()
@@ -116,7 +116,7 @@ func (a *Auth) Invalidate() {
 }
 
 func (a *Auth) Init(inst *Beatport) error {
-	fmt.Println("Logging in")
+	fmt.Fprintln(os.Stderr, "Logging in")
 	sessionId, err := a.login(inst)
 	if err != nil {
 		return fmt.Errorf("login: %v", err)

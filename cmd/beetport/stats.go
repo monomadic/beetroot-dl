@@ -1,8 +1,8 @@
 package main
 
 import (
+	"monomadic/beetport/internal/beatport"
 	"sort"
-	"unspok3n/beatportdl/internal/beatport"
 )
 
 type entityStats struct {
