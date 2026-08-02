@@ -2,7 +2,6 @@
 .vscode
 .idea
 .env
-bin/
 temp/
 error.log
 beatportdl-credentials.json
@@ -10,4 +9,4 @@ beatportdl-config.yml
 beetroot-dl-credentials.json
 beetroot-dl.toml
 downloads/
-./beetroot-dl
+/beetroot-dl

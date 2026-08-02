@@ -4,15 +4,17 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/monomadic/beetroot-dl/config"
-	"github.com/monomadic/beetroot-dl/internal/beatport"
 	"io"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
+
+	"github.com/monomadic/beetroot-dl/config"
+	"github.com/monomadic/beetroot-dl/internal/beatport"
 
 	"github.com/fatih/color"
 	"github.com/vbauerster/mpb/v8"
@@ -24,7 +26,21 @@ const (
 	errorFilename  = "beetroot-dl-err.log"
 )
 
-var version = "dev"
+// version may be overridden at link time (-ldflags "-X main.version=...");
+// otherwise the toolchain's own stamping is used — 'go install ...@v1.2.3'
+// records the module version, and Go 1.24+ 'go build' in a checkout records
+// the git tag/commit (with a +dirty suffix when the tree is modified).
+var version = ""
+
+func resolveVersion() string {
+	if version != "" {
+		return version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		return bi.Main.Version
+	}
+	return "dev"
+}
 
 type application struct {
 	config      *config.AppConfig
@@ -169,7 +185,7 @@ func main() {
 	flag.Parse()
 
 	if showVersion {
-		fmt.Println(version)
+		fmt.Println(resolveVersion())
 		return
 	}
 

@@ -85,9 +85,9 @@ beetroot-dl "$URL" | while read -r f; do process "$f"; done || echo "something f
 - TOML config at `~/.config/beetroot-dl.toml` instead of YAML next to the
   binary; `XDG_CONFIG_HOME` respected on all platforms.
 - Never blocks on a prompt in a pipe or cron job.
-- Pure Go — no CGO, so `go install .../cmd/beetroot-dl@latest` works on a
-  machine with nothing but Go, and cross-compiling needs no C toolchain
-  (upstream requires taglib headers and zig to build).
+- Pure Go — no CGO, so `go install github.com/monomadic/beetroot-dl@latest`
+  works on a machine with nothing but Go, and cross-compiling needs no C
+  toolchain (upstream requires taglib headers and zig to build).
 
 *(Short for now — this list grows as [TASKS.md](TASKS.md) gets worked
 through.)*
@@ -277,27 +277,25 @@ URL types that are currently supported: **Tracks, Releases, Playlists, Charts, L
 Building
 ---
 
-Pure Go — no C toolchain, headers, system libraries, or environment variables
-needed. Tagging uses [TagLib](https://taglib.org/) compiled to WebAssembly
-([go.senan.xyz/taglib](https://github.com/sentriz/go-taglib)), embedded in the
-binary and run in-process.
+Pure Go — no C toolchain, headers, system libraries, Makefile, or environment
+variables needed. Tagging uses [TagLib](https://taglib.org/) compiled to
+WebAssembly ([go.senan.xyz/taglib](https://github.com/sentriz/go-taglib)),
+embedded in the binary and run in-process.
 
-Install straight from source (the main package is `./cmd/beetroot-dl`):
-
-```shell
-go install github.com/monomadic/beetroot-dl/cmd/beetroot-dl@latest
-```
-
-Or from a checkout:
+Install straight from source:
 
 ```shell
-go build -o beetroot-dl ./cmd/beetroot-dl
+go install github.com/monomadic/beetroot-dl@latest
 ```
 
-Cross-compiling is standard Go — `GOOS=... GOARCH=... go build`, nothing else.
+Or from a checkout — a bare `go install`, or:
 
-A Makefile exists for convenience: `make build` (version-stamped, into
-`./bin`), `make install`, `make test`, and `make all` for the five release
-targets (macOS amd64/arm64, Linux amd64/arm64, Windows amd64).
+```shell
+go build
+```
+
+Cross-compiling is standard Go — `GOOS=... GOARCH=... go build`, nothing
+else. `--version` reports the module version (or git tag/commit) stamped by
+the Go toolchain itself; no build flags required.
 
 `ffmpeg` is required at runtime only for the `medium-hls` quality setting.

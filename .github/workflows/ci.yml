@@ -30,13 +30,13 @@ jobs:
         run: go mod tidy && go mod vendor && git diff --exit-code -- go.mod go.sum vendor/
 
       - name: Build
-        run: make build
+        run: go build ./...
 
       - name: Vet
-        run: make vet
+        run: go vet ./...
 
       - name: Test (race)
-        run: make test GO_TEST_FLAGS=-race
+        run: go test -race ./...
 
   lint:
     runs-on: ubuntu-latest
