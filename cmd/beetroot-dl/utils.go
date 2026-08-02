@@ -141,7 +141,7 @@ func Pause() {
 // it pauses first, so a double-clicked window does not vanish before the error
 // can be read; otherwise it exits immediately, which is what a script needs.
 func Fatal(interactive bool, format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "beetport: "+format+"\n", args...)
+	fmt.Fprintf(os.Stderr, "beetroot-dl: "+format+"\n", args...)
 	if interactive {
 		Pause()
 	}
@@ -218,7 +218,7 @@ func DefaultConfigPath() string {
 	return path.Join(ConfigDir(), configFilename)
 }
 
-// FindConfigFile prefers ~/.config/beetport.toml. The working directory and
+// FindConfigFile prefers ~/.config/beetroot-dl.toml. The working directory and
 // the executable's own directory are still honoured when they already hold a
 // config, so an existing portable/pinned-to-the-binary setup keeps working —
 // but a *new* config is always created in ConfigDir(), never spilled next to

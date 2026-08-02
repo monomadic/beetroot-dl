@@ -4,8 +4,8 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"monomadic/beetport/config"
-	"monomadic/beetport/internal/beatport"
+	"monomadic/beetroot-dl/config"
+	"monomadic/beetroot-dl/internal/beatport"
 	"net/url"
 	"os"
 	"strconv"
@@ -39,7 +39,7 @@ func Setup(configPathOverride string, interactive bool) (cfg *config.AppConfig, 
 		// on stdin inside a cron job or a pipeline.
 		if !interactive && !isTerminal(os.Stdin) {
 			return nil, configFilePath, fmt.Errorf(
-				"no config file at %s\ncreate one by running: beetport -i", configFilePath)
+				"no config file at %s\ncreate one by running: beetroot-dl -i", configFilePath)
 		}
 		fmt.Fprintln(os.Stderr, "Config file not found, creating a new one:", configFilePath)
 

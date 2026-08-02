@@ -1,4 +1,4 @@
-module monomadic/beetport
+module monomadic/beetroot-dl
 
 go 1.22.5
 

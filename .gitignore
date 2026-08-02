@@ -7,7 +7,7 @@ temp/
 error.log
 beatportdl-credentials.json
 beatportdl-config.yml
-beetport-credentials.json
-beetport.toml
+beetroot-dl-credentials.json
+beetroot-dl.toml
 downloads/
-./beetport
+./beetroot-dl

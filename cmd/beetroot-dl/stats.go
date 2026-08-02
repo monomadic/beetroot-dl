@@ -1,7 +1,7 @@
 package main
 
 import (
-	"monomadic/beetport/internal/beatport"
+	"monomadic/beetroot-dl/internal/beatport"
 	"sort"
 )
 

@@ -3,7 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
-	"monomadic/beetport/internal/validator"
+	"monomadic/beetroot-dl/internal/validator"
 	"os"
 	"os/exec"
 	"path"

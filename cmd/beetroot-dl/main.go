@@ -5,8 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"monomadic/beetport/config"
-	"monomadic/beetport/internal/beatport"
+	"monomadic/beetroot-dl/config"
+	"monomadic/beetroot-dl/internal/beatport"
 	"os"
 	"os/signal"
 	"strings"
@@ -19,9 +19,9 @@ import (
 )
 
 const (
-	configFilename = "beetport.toml"
-	cacheFilename  = "beetport-credentials.json"
-	errorFilename  = "beetport-err.log"
+	configFilename = "beetroot-dl.toml"
+	cacheFilename  = "beetroot-dl-credentials.json"
+	errorFilename  = "beetroot-dl-err.log"
 )
 
 var version = "dev"
@@ -58,11 +58,11 @@ func (app *application) recordDownload(path string) {
 	app.downloaded = append(app.downloaded, path)
 }
 
-const usageText = `beetport — download tracks from Beatport
+const usageText = `beetroot-dl — download tracks from Beatport
 
 USAGE
-  beetport [flags] <url|query|file.txt>...
-  beetport [flags] -i
+  beetroot-dl [flags] <url|query|file.txt>...
+  beetroot-dl [flags] -i
 
 By default it downloads what you asked for and exits. Pass -i for the
 interactive prompt loop (the old default behaviour).
@@ -86,7 +86,7 @@ OUTPUT
   Progress bars, errors and verbose steps go to stderr, so stdout stays
   usable in a pipe:
 
-    beetport "https://www.beatport.com/track/strobe/1696999" | while read -r f; do
+    beetroot-dl "https://www.beatport.com/track/strobe/1696999" | while read -r f; do
       echo "got: $f"
     done
 

@@ -1,18 +1,18 @@
-# beetport
+# beetroot-dl
 
 Beatport downloader (FLAC, AAC) — a fork of
-[unspok3beetport](https://github.com/unspok3beetport), reworked to
+[unspok3n/beatportdl](https://github.com/unspok3n/beatportdl), reworked to
 behave like a normal unix command line tool.
 
 ```shell
-beetport https://www.beatport.com/track/strobe/1696999
+beetroot-dl https://www.beatport.com/track/strobe/1696999
 ```
 
 ## What changed from upstream
 
 **Behaviour**
 
-| | upstream `beatportdl` | `beetport` |
+| | upstream `beatportdl` | `beetroot-dl` |
 |---|---|---|
 | after a download | drops into an interactive prompt loop | exits |
 | interactive loop | always on | opt-in with `-i` |
@@ -22,7 +22,7 @@ beetport https://www.beatport.com/track/strobe/1696999
 | downloaded paths | never reported | printed to stdout, one per line |
 | progress/errors/prompts | mixed into stdout | all on stderr |
 | config format | YAML | TOML |
-| config location | next to the binary | `~/.config/beetport.toml` |
+| config location | next to the binary | `~/.config/beetroot-dl.toml` |
 | `XDG_CONFIG_HOME` | Linux only | all platforms |
 | missing config, no tty | blocks forever on a prompt | fails with an explanation |
 | fatal error | "Press enter to exit" (blocks) | message on stderr, exits |
@@ -33,7 +33,7 @@ nothing waits on a human unless you asked for a prompt.
 
 ```shell
 # cue every track you just bought, without guessing what was written where
-beetport "$URL" | while read -r f; do process "$f"; done || echo "something failed"
+beetroot-dl "$URL" | while read -r f; do process "$f"; done || echo "something failed"
 ```
 
 **Fixes**
@@ -60,8 +60,8 @@ beetport "$URL" | while read -r f; do process "$f"; done || echo "something fail
 
 **Breaking**
 
-- The binary is `beetport`, not `beatportdl`.
-- Config is TOML at `~/.config/beetport.toml`; port an existing
+- The binary is `beetroot-dl`, not `beatportdl`.
+- Config is TOML at `~/.config/beetroot-dl.toml`; port an existing
   `beatportdl-config.yml` by hand (`key: value` → `key = "value"`).
 - Upstream's `-q` meant "quit after finishing" — that is the default now, and
   `-q` means `--quiet`.
@@ -72,19 +72,19 @@ beetport "$URL" | while read -r f; do process "$f"; done || echo "something fail
 
 Setup
 ---
-1. [Download](https://github.com/unspok3beetport/releases/) or [build](#building) beetport.
+1. [Download](https://github.com/monomadic/beetroot-dl/releases/) or [build](#building) beetroot-dl.
 
-     *Compiled binaries for Windows, macOS (amd64, arm64) and Linux (amd64, arm64) are available on the [Releases](https://github.com/unspok3beetport/releases) page.* \
-     *Don't forget to set the execute permission on unix systems, e.g., chmod +x beetport-darwin-arm64*
+     *Compiled binaries for Windows, macOS (amd64, arm64) and Linux (amd64, arm64) are available on the [Releases](https://github.com/monomadic/beetroot-dl/releases) page.* \
+     *Don't forget to set the execute permission on unix systems, e.g., chmod +x beetroot-dl-darwin-arm64*
 
-2. Run beetport with `-i` (e.g. `./beetport-darwin-arm64 -i`), then specify the:
+2. Run beetroot-dl with `-i` (e.g. `./beetroot-dl-darwin-arm64 -i`), then specify the:
    - Beatport username
    - Beatport password
    - Downloads directory
    - Audio quality
 
-3. OPTIONAL: Customize the config file at `~/.config/beetport.toml`
-   (or `$XDG_CONFIG_HOME/beetport.toml`), created on first run. It is TOML,
+3. OPTIONAL: Customize the config file at `~/.config/beetroot-dl.toml`
+   (or `$XDG_CONFIG_HOME/beetroot-dl.toml`), created on first run. It is TOML,
    so values are `key = "value"`. You can put the following options into it:
 
 ---
@@ -119,7 +119,7 @@ Setup
 | `key_system`                  | standard-short                            | String     | Music key system used in filenames and tags                                                                                                                                               |
 | `proxy`                       |                                           | String     | Proxy URL                                                                                                                                                                                 |
 
-If the Beatport credentials are correct, you should also see the file `beetport-credentials.json` appear beside the config.
+If the Beatport credentials are correct, you should also see the file `beetroot-dl-credentials.json` appear beside the config.
 *If you accidentally entered an incorrect password and got an error, you can always manually edit the config file*
 
 Download quality options, per Beatport/Beatsource subscription type:
@@ -209,36 +209,36 @@ Usage
 
 Give it a URL; it downloads and exits.
 ```shell
-beetport https://www.beatport.com/track/strobe/1696999
+beetroot-dl https://www.beatport.com/track/strobe/1696999
 ```
 Multiple URLs, or text files of URLs (one per line), both work:
 ```shell
-beetport https://www.beatport.com/track/strobe/1696999 https://www.beatport.com/track/move-for-me/591753
-beetport file.txt file2.txt
+beetroot-dl https://www.beatport.com/track/strobe/1696999 https://www.beatport.com/track/move-for-me/591753
+beetroot-dl file.txt file2.txt
 ```
 
 The path of each downloaded track goes to stdout, one per line, so a run
 composes with other tools:
 ```shell
-beetport https://www.beatport.com/track/strobe/1696999 | while read -r f; do
+beetroot-dl https://www.beatport.com/track/strobe/1696999 | while read -r f; do
   echo "got: $f"
 done
 ```
 Progress bars, errors and `-v` step reporting all go to stderr, and the exit
-status says whether it worked — so `beetport ... || echo failed` is
+status says whether it worked — so `beetroot-dl ... || echo failed` is
 meaningful.
 
 For the interactive prompt loop (search queries, label/artist filters), pass
 `-i`:
 ```shell
-beetport -i
+beetroot-dl -i
 Enter url or search query:
 ```
 Search returns beatport results; include an `@beatsource` tag in the query to
 search beatsource instead. A search query needs `-i`, since picking a result
 requires a prompt.
 
-Run `beetport --help` for the full flag list.
+Run `beetroot-dl --help` for the full flag list.
 
 URL types that are currently supported: **Tracks, Releases, Playlists, Charts, Labels, Artists**
 
@@ -249,11 +249,11 @@ Required dependencies:
 * [zlib](https://github.com/madler/zlib) >= 1.2.3
 * [Zig C/C++ Toolchain](https://github.com/ziglang/zig) >= 0.14.0
 
-beetport uses [TagLib](https://taglib.org/) C bindings to handle audio metadata and therefore requires [CGO](https://go.dev/wiki/cgo)
+beetroot-dl uses [TagLib](https://taglib.org/) C bindings to handle audio metadata and therefore requires [CGO](https://go.dev/wiki/cgo)
 
 Makefile is adapted for cross-compilation and uses [Zig toolchain](https://github.com/ziglang/zig)
 
-To compile beetport with Zig using Makefile, you must specify the paths to the C/C++ libraries folder and headers folder for the desired OS and architecture with `-L` (for libraries) and `-I` (for headers) flags using environment variables: `MACOS_ARM64_LIB_PATH`, `MACOS_AMD64_LIB_PATH`, `LINUX_AMD64_LIB_PATH`, `LINUX_ARM64_LIB_PATH`, `WINDOWS_AMD64_LIB_PATH`
+To compile beetroot-dl with Zig using Makefile, you must specify the paths to the C/C++ libraries folder and headers folder for the desired OS and architecture with `-L` (for libraries) and `-I` (for headers) flags using environment variables: `MACOS_ARM64_LIB_PATH`, `MACOS_AMD64_LIB_PATH`, `LINUX_AMD64_LIB_PATH`, `LINUX_ARM64_LIB_PATH`, `WINDOWS_AMD64_LIB_PATH`
 
 One line example *(for unix and unix-like os)*
 ```shell
