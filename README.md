@@ -3,11 +3,13 @@
 Beatport downloader (FLAC, AAC) — a fork of
 [unspok3n/beatportdl](https://github.com/unspok3n/beatportdl) reworked:
 
-- **pure go** drops the dependencies on CGO, zig, etc and compiles in pure, simple go
+- **pure go** drops the dependencies on CGO, zig, Make, etc
+- now just a standard go package: run `go install`, `go build`, etc
 - behaves like a normal unix command line tool _(see 'Behavior')_
 - config file now follows convention instead of forcibly being
     next to the binary
-- full completions for zsh/bash
+- full auto completion for zsh/bash
+- many bug fixes and structural improvements
 
 ```shell
 beetroot-dl https://www.beatport.com/track/strobe/1696999
