@@ -78,6 +78,9 @@ FLAGS
   -v, --verbose       report each step (fetch, download, tag) to stderr
   -q, --quiet         suppress progress bars
       --config PATH   use this config file instead of the default
+      --completions SHELL
+                      print a completion script for SHELL (bash or zsh) and
+                      exit; see COMPLETIONS below
       --version       print version and exit
   -h, --help          show this help
 
@@ -99,6 +102,11 @@ CONFIG
   %s
   Created interactively on first run if missing. A config already sitting in
   the working directory or beside the binary is still honoured.
+
+COMPLETIONS
+  zsh:   beetroot-dl --completions zsh > "${fpath[1]}/_beetroot-dl"
+  bash:  beetroot-dl --completions bash > ~/.local/share/bash-completion/completions/beetroot-dl
+  Then start a new shell.
 `
 
 func usage() {
@@ -116,6 +124,7 @@ func main() {
 		quiet       bool
 		showVersion bool
 		configPath  string
+		completions string
 	)
 	flag.Usage = usage
 	flag.BoolVar(&interactive, "i", false, "")
@@ -126,11 +135,16 @@ func main() {
 	flag.BoolVar(&quiet, "quiet", false, "")
 	flag.BoolVar(&showVersion, "version", false, "")
 	flag.StringVar(&configPath, "config", "", "")
+	flag.StringVar(&completions, "completions", "", "")
 	flag.Parse()
 
 	if showVersion {
 		fmt.Println(version)
 		return
+	}
+
+	if completions != "" {
+		runCompletions(completions)
 	}
 
 	inputArgs := flag.Args()

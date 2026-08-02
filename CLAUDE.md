@@ -28,6 +28,7 @@ Requires an active Beatport/Beatsource streaming plan to actually download.
 | `cmd/beetroot-dl/concurrency.go` | worker/semaphore helpers (`globalSem` for URL handling, `downloadSem` for downloads) |
 | `cmd/beetroot-dl/utils.go` | `downloadFile`, progress bars, logging (`LogError`/`LogInfo`/`LogVerbose`), config/cache file discovery |
 | `cmd/beetroot-dl/stats.go` | facet stats for the interactive filter wizard |
+| `cmd/beetroot-dl/completions.go` | embedded bash/zsh completion scripts, printed by `--completions` (keep in sync with the flags in `main.go` — a test enforces it) |
 | `internal/beatport/` | API client: `beatport.go` (`fetch`, auth-aware HTTP), `auth.go` (OAuth password flow + token cache), one file per entity (tracks, releases, playlists, charts, labels, artists), `links.go` (URL parsing) |
 | `internal/taglib/` | CGO binding to taglib (`tag_c.h` + `extensions.cpp`); tags FLAC and M4A |
 | `config/` | TOML config parsing/validation (`config.go`), default tag mappings (`tag_mappings.go`) |

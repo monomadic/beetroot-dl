@@ -56,6 +56,8 @@ beetroot-dl "$URL" | while read -r f; do process "$f"; done || echo "something f
   target directory, write, tag) on stderr.
 - `-q` / `--quiet` — suppress progress bars.
 - `--config PATH` — use a specific config file.
+- `--completions bash|zsh` — print a shell completion script (install
+  instructions under [Setup](#setup)).
 - `--version`.
 
 **Breaking**
@@ -95,7 +97,17 @@ Setup
    - Downloads directory
    - Audio quality
 
-3. OPTIONAL: Customize the config file at `~/.config/beetroot-dl.toml`
+3. OPTIONAL: Install shell completions — the binary carries its own scripts:
+
+   ```shell
+   # zsh — write into any directory on your $fpath, then restart the shell
+   beetroot-dl --completions zsh > "${fpath[1]}/_beetroot-dl"
+
+   # bash
+   beetroot-dl --completions bash > ~/.local/share/bash-completion/completions/beetroot-dl
+   ```
+
+4. OPTIONAL: Customize the config file at `~/.config/beetroot-dl.toml`
    (or `$XDG_CONFIG_HOME/beetroot-dl.toml`), created on first run. It is TOML,
    so values are `key = "value"`. You can put the following options into it:
 
