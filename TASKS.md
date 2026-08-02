@@ -30,14 +30,14 @@ as they land; keep this file current when scope changes.
 
 ## P1 — Toolchain, dependencies, infrastructure
 
-- [ ] **`go mod tidy` + `go mod vendor`.** `gopkg.in/yaml.v2` is a direct
+- [x] **`go mod tidy` + `go mod vendor`.** `gopkg.in/yaml.v2` is a direct
   dependency nothing imports (left over from the YAML→TOML migration);
   `mattn/go-isatty` is imported directly but marked indirect.
-- [ ] **Bump the Go directive** (`go 1.22.5` → current toolchain, 1.26.x) and
+- [x] **Bump the Go directive** (`go 1.22.5` → current toolchain, 1.26.x) and
   update dependencies: `BurntSushi/toml` 1.4→1.6, `fatih/color` 1.15→1.19,
   `mpb/v8` 8.8→8.14, `grafov/m3u8` 0.12.0→0.12.1, `golang.org/x/sys` 0.28→0.47
   (includes security fixes). All minor bumps.
-- [ ] **Make the module path installable.** `monomadic/beetroot-dl` is not
+- [x] **Make the module path installable.** `monomadic/beetroot-dl` is not
   fetchable; rename to `github.com/monomadic/beetroot-dl` so `go install`
   works.
 - [ ] **Add CI.** No workflows exist. GitHub Actions running `go vet`,

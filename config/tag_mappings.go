@@ -2,7 +2,7 @@ package config
 
 import (
 	"fmt"
-	"monomadic/beetroot-dl/internal/validator"
+	"github.com/monomadic/beetroot-dl/internal/validator"
 )
 
 func ValidateTagMappings(m map[string]map[string]string) error {
