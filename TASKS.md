@@ -72,10 +72,12 @@ as they land; keep this file current when scope changes.
   silently to the default download path.
 - [x] **Simplify `getStreamSegments` signature** — returns `*[]string,
   *StreamKey` for no reason.
-- [ ] **Strategic: consider dropping CGO taglib** for a pure-Go tagging path
-  (only FLAC and M4A are written). Would eliminate the zig/SDK
-  cross-compilation machinery, make CI trivial, and turn releases into plain
-  `GOOS=... go build`. Largest task here, largest maintenance win.
+- [x] **Strategic: drop CGO taglib.** Replaced `internal/taglib` with
+  `go.senan.xyz/taglib` (real taglib compiled to WebAssembly, run in-process
+  via wazero — same property model, ~380KB embedded). The zig/SDK/.env
+  cross-compilation machinery is gone; releases are plain `GOOS=... go build`
+  and CI needs no system packages. Round-trip tests against real FLAC/M4A
+  fixtures live in `cmd/beetroot-dl/tag_test.go`.
 
 ## Suggested order
 

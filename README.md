@@ -80,6 +80,8 @@ beetroot-dl "$URL" | while read -r f; do process "$f"; done || echo "something f
 - TOML config at `~/.config/beetroot-dl.toml` instead of YAML next to the
   binary; `XDG_CONFIG_HOME` respected on all platforms.
 - Never blocks on a prompt in a pipe or cron job.
+- Pure Go — no CGO, so `go install` just works and cross-compiling needs no
+  C toolchain (upstream requires taglib headers and zig to build).
 
 *(Short for now — this list grows as [TASKS.md](TASKS.md) gets worked
 through.)*
@@ -269,10 +271,10 @@ URL types that are currently supported: **Tracks, Releases, Playlists, Charts, L
 Building
 ---
 
-### For this machine
-
-With [TagLib](https://taglib.org/) >= 2.0 installed (e.g. `brew install taglib`),
-the Makefile finds it via pkg-config (falling back to the Homebrew prefix):
+Pure Go — no C toolchain, headers, or system libraries needed. Tagging uses
+[TagLib](https://taglib.org/) compiled to WebAssembly
+([go.senan.xyz/taglib](https://github.com/sentriz/go-taglib)), embedded in the
+binary and run in-process.
 
 ```shell
 make build     # → ./bin/beetroot-dl
@@ -282,34 +284,8 @@ make build     # → ./bin/beetroot-dl
 make install   # → $(go env GOPATH)/bin/beetroot-dl
 ```
 
-`make test` runs the tests with the same setup. A bare `go install ./cmd/beetroot-dl`
-also works if the taglib headers are on your compiler's default search path —
-the Makefile targets exist because Homebrew's usually aren't.
+A bare `go build ./cmd/beetroot-dl` works too. Cross-compiling is standard Go:
+`make all` produces macOS (amd64/arm64), Linux (amd64/arm64) and Windows
+(amd64) binaries; any other target is just `GOOS=... GOARCH=... go build`.
 
-### Release cross-builds
-
-Required dependencies:
-* [TagLib](https://github.com/taglib/taglib) >= 2.0
-* [zlib](https://github.com/madler/zlib) >= 1.2.3
-* [Zig C/C++ Toolchain](https://github.com/ziglang/zig) >= 0.14.0
-
-beetroot-dl uses [TagLib](https://taglib.org/) C bindings to handle audio metadata and therefore requires [CGO](https://go.dev/wiki/cgo)
-
-Makefile is adapted for cross-compilation and uses [Zig toolchain](https://github.com/ziglang/zig)
-
-To compile beetroot-dl with Zig using Makefile, you must specify the paths to the C/C++ libraries folder and headers folder for the desired OS and architecture with `-L` (for libraries) and `-I` (for headers) flags using environment variables: `MACOS_ARM64_LIB_PATH`, `MACOS_AMD64_LIB_PATH`, `LINUX_AMD64_LIB_PATH`, `LINUX_ARM64_LIB_PATH`, `WINDOWS_AMD64_LIB_PATH`
-
-One line example *(for unix and unix-like os)*
-```shell
-MACOS_ARM64_LIB_PATH="-L/usr/local/lib -I/usr/local/include" \
-make darwin-arm64
-```
-
-You can also create an `.env` file in the project folder and specify all environment variables in it:
-```
-MACOS_ARM64_LIB_PATH=-L/libraries/for/macos-arm64 -I/headers/for/macos-arm64
-MACOS_AMD64_LIB_PATH=-L/libraries/for/macos-amd64 -I/headers/for/macos-amd64
-LINUX_AMD64_LIB_PATH=-L/libraries/for/linux-amd64 -I/headers/for/linux-amd64
-LINUX_ARM64_LIB_PATH=-L/libraries/for/linux-arm64 -I/headers/for/linux-arm64
-WINDOWS_AMD64_LIB_PATH=-L/libraries/for/windows-amd64 -I/headers/for/windows-amd64
-```
+`ffmpeg` is required at runtime only for the `medium-hls` quality setting.

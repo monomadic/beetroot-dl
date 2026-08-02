@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/monomadic/beetroot-dl/config"
 	"github.com/monomadic/beetroot-dl/internal/beatport"
-	"github.com/monomadic/beetroot-dl/internal/taglib"
+	"go.senan.xyz/taglib"
 	"os"
 	"path/filepath"
 	"resenje.org/singleflight"
@@ -256,11 +256,6 @@ func (app *application) tagTrack(location string, track *beatport.Track, coverPa
 	if !app.config.FixTags {
 		return nil
 	}
-	file, err := taglib.Read(location)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
 
 	subgenre := ""
 	if track.Subgenre != nil {
@@ -322,49 +317,31 @@ func (app *application) tagTrack(location string, track *beatport.Track, coverPa
 		"release_label_url":      track.Release.Label.StoreUrl(),
 	}
 
-	if fileExt == ".m4a" {
-		if err = file.StripMp4(); err != nil {
-			return err
-		}
-	} else {
-		existingTags, err := file.PropertyKeys()
-		if err != nil {
-			return fmt.Errorf("read existing tags: %v", err)
-		}
+	var format string
+	switch fileExt {
+	case ".flac":
+		format = "flac"
+	case ".m4a":
+		format = "m4a"
+	default:
+		return fmt.Errorf("no tag support for %s files", fileExt)
+	}
 
-		for _, tag := range existingTags {
-			file.SetProperty(tag, nil)
+	tags := make(map[string][]string)
+	for field, property := range app.config.TagMappings[format] {
+		// Older configs could route an m4a field to a raw MP4 atom with a
+		// `_raw` suffix. TagLib's property interface stores unknown keys as
+		// freeform atoms — the same intent — so the suffix is just stripped.
+		property = strings.TrimSuffix(property, rawTagSuffix)
+		if value := mappingValues[field]; value != "" {
+			tags[property] = []string{value}
 		}
 	}
 
-	switch fileExt {
-	case ".flac":
-		for field, property := range app.config.TagMappings["flac"] {
-			value := mappingValues[field]
-			if value != "" {
-				file.SetProperty(property, &value)
-			}
-		}
-	case ".m4a":
-		rawTags := make(map[string]string)
-
-		for field, property := range app.config.TagMappings["m4a"] {
-			if strings.HasSuffix(property, rawTagSuffix) {
-				if mappingValues[field] != "" {
-					property = strings.TrimSuffix(property, rawTagSuffix)
-					rawTags[property] = mappingValues[field]
-				}
-			} else {
-				value := mappingValues[field]
-				if value != "" {
-					file.SetProperty(property, &value)
-				}
-			}
-		}
-
-		for tag, value := range rawTags {
-			file.SetItemMp4(tag, value)
-		}
+	// Clear drops every existing tag not present in the new map — the same
+	// wipe-then-write the CGO binding did with StripMp4/SetProperty(nil).
+	if err := taglib.WriteTags(location, tags, taglib.Clear); err != nil {
+		return fmt.Errorf("write tags: %w", err)
 	}
 
 	if coverPath != "" && (app.config.CoverSize != config.DefaultCoverSize || fileExt == ".m4a") {
@@ -372,20 +349,9 @@ func (app *application) tagTrack(location string, track *beatport.Track, coverPa
 		if err != nil {
 			return err
 		}
-		picture := taglib.Picture{
-			MimeType:    "image/jpeg",
-			PictureType: "Front",
-			Description: "Cover",
-			Data:        data,
-			Size:        uint(len(data)),
+		if err := taglib.WriteImageOptions(location, data, 0, "Front Cover", "Cover", "image/jpeg"); err != nil {
+			return fmt.Errorf("write cover: %w", err)
 		}
-		if err := file.SetPicture(&picture); err != nil {
-			return err
-		}
-	}
-
-	if err = file.Save(); err != nil {
-		return err
 	}
 
 	return nil
