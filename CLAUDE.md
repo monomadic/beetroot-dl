@@ -10,12 +10,19 @@ Requires an active Beatport/Beatsource streaming plan to actually download.
 
 ## Current state
 
-- `TASKS.md` holds the prioritised backlog (P0 correctness bugs → P1
-  toolchain/CI → P2 refactors). Check it before starting work; tick items off
-  as they land.
-- No CI yet. Tests are sparse (two util test files).
-- Dependencies are vendored (`vendor/`); after changing `go.mod` run
-  `go mod tidy && go mod vendor`.
+- `TASKS.md` holds the prioritised backlog. Check it before starting work; tick
+  items off as they land. The P0 correctness/security items are done; what
+  remains is the handler deduplication, removing `os.Exit` from the input
+  helpers, more tests, and the strategic question of dropping the CGO taglib
+  dependency.
+- CI (`.github/workflows/ci.yml`) runs gofmt, a vendor-sync check, build, vet,
+  `go test -race` and golangci-lint on ubuntu + macos. Run `make vet` and
+  `make test GO_TEST_FLAGS=-race` before pushing; the vendor-sync check means
+  a `go.mod` change must be accompanied by `go mod tidy && go mod vendor`.
+- Lint config is `.golangci.yml` (pinned to v2.6.2 in CI). errcheck
+  exclusions cover deferred `Close`, writes to stderr/the error log, and
+  `os.Remove` cleanup — don't add naked error-ignoring beyond those.
+- Dependencies are vendored (`vendor/`).
 
 ## Layout
 
@@ -64,3 +71,11 @@ no Go files.
 - Errors are logged (and counted, for the exit code) via `app.LogError`;
   handlers log-and-return rather than propagate.
 - Version is stamped via `-ldflags -X main.version=...` from git describe.
+- **All network access goes through the `beatport` client.** API calls use
+  `fetch`; track/cover/HLS transfers use `app.get`, which wraps
+  `bp.DownloadClient()` and binds the request to `app.ctx`. Never reach for
+  `http.Get`/`http.DefaultClient` — that bypasses the configured proxy and
+  the cancellation path.
+- The URL queue is behind `urlsMutex`; use `addUrls`/`snapshotUrls`/
+  `clearUrls`/`hasUrls` rather than touching `app.urls` directly (the signal
+  handler reads it concurrently).
