@@ -68,7 +68,19 @@ beetroot-dl "$URL" | while read -r f; do process "$f"; done || echo "something f
 
 *Requires an active [Beatport](https://stream.beatport.com/) or [Beatsource](https://stream.beatsource.com/) streaming plan.*
 
-![Screenshot](/screenshots/main.png?raw=true "Screenshot")
+## Highlights over upstream
+
+- Scriptable by default: downloads what you asked for and exits; stdout
+  carries only the downloaded file paths, so output pipes cleanly.
+- Real exit codes (`0` ok, `1` failure, `2` usage, `130` interrupted).
+- `--help`, `--version`, `-v`, `-q`, `--config` — and they work before any
+  config or login.
+- TOML config at `~/.config/beetroot-dl.toml` instead of YAML next to the
+  binary; `XDG_CONFIG_HOME` respected on all platforms.
+- Never blocks on a prompt in a pipe or cron job.
+
+*(Short for now — this list grows as [TASKS.md](TASKS.md) gets worked
+through.)*
 
 Setup
 ---
