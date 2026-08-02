@@ -3,8 +3,10 @@ ifneq (,$(wildcard ./.env))
     export
 endif
 
-BUILD_CMD = go build -ldflags "-w -linkmode external -extldflags '-lstdc++'" -buildmode pie
-BUILD_SRC = ./cmd/beatportdl
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+
+BUILD_CMD = go build -ldflags "-w -linkmode external -extldflags '-lstdc++' -X main.version=$(VERSION)" -buildmode pie
+BUILD_SRC = ./cmd/beetport
 BUILD_DIR = ./bin
 
 ZIG_CC = zig cc
@@ -23,7 +25,7 @@ darwin-arm64:
 	CGO_LDFLAGS="-F${MACOS_SDK_PATH}/System/Library/Frameworks -L${MACOS_SDK_PATH}/usr/lib" \
 	CC="${ZIG_CC} -target aarch64-macos ${MACOS_ARM64_LIB_PATH} -isysroot ${MACOS_SDK_PATH} -iwithsysroot /usr/include -iframeworkwithsysroot /System/Library/Frameworks" \
 	CXX="${ZIG_CXX} -target aarch64-macos ${MACOS_ARM64_LIB_PATH} -isysroot ${MACOS_SDK_PATH} -iwithsysroot /usr/include -iframeworkwithsysroot /System/Library/Frameworks" \
-	${BUILD_CMD} -o=${BUILD_DIR}/beatportdl-darwin-arm64 ${BUILD_SRC}
+	${BUILD_CMD} -o=${BUILD_DIR}/beetport-darwin-arm64 ${BUILD_SRC}
 
 darwin-amd64:
 	@echo "Building for macOS AMD64"
@@ -34,7 +36,7 @@ darwin-amd64:
 	CGO_LDFLAGS="-F${MACOS_SDK_PATH}/System/Library/Frameworks -L${MACOS_SDK_PATH}/usr/lib" \
 	CC="${ZIG_CC} -target x86_64-macos ${MACOS_AMD64_LIB_PATH} -isysroot ${MACOS_SDK_PATH} -iwithsysroot /usr/include -iframeworkwithsysroot /System/Library/Frameworks" \
 	CXX="${ZIG_CXX} -target x86_64-macos ${MACOS_AMD64_LIB_PATH} -isysroot ${MACOS_SDK_PATH} -iwithsysroot /usr/include -iframeworkwithsysroot /System/Library/Frameworks" \
-	${BUILD_CMD} -o=${BUILD_DIR}/beatportdl-darwin-amd64 ${BUILD_SRC}
+	${BUILD_CMD} -o=${BUILD_DIR}/beetport-darwin-amd64 ${BUILD_SRC}
 
 linux-amd64:
 	@echo "Building for Linux AMD64"
@@ -44,7 +46,7 @@ linux-amd64:
 	GOARCH=amd64 \
 	CC="${ZIG_CC} -target x86_64-linux-gnu ${LINUX_AMD64_LIB_PATH} -DTAGLIB_STATIC -Wall" \
 	CXX="${ZIG_CXX} -target x86_64-linux-gnu ${LINUX_AMD64_LIB_PATH} -DTAGLIB_STATIC -Wall" \
-	${BUILD_CMD} -o=${BUILD_DIR}/beatportdl-linux-amd64 ${BUILD_SRC}
+	${BUILD_CMD} -o=${BUILD_DIR}/beetport-linux-amd64 ${BUILD_SRC}
 
 linux-arm64:
 	@echo "Building for Linux ARM64"
@@ -54,7 +56,7 @@ linux-arm64:
 	GOARCH=arm64 \
 	CC="${ZIG_CC} -target aarch64-linux-gnu ${LINUX_ARM64_LIB_PATH} -DTAGLIB_STATIC -Wall" \
 	CXX="${ZIG_CXX} -target aarch64-linux-gnu ${LINUX_ARM64_LIB_PATH} -DTAGLIB_STATIC -Wall" \
-	${BUILD_CMD} -o=${BUILD_DIR}/beatportdl-linux-arm64 ${BUILD_SRC}
+	${BUILD_CMD} -o=${BUILD_DIR}/beetport-linux-arm64 ${BUILD_SRC}
 
 windows-amd64:
 	@echo "Building for Windows AMD64"
@@ -64,4 +66,4 @@ windows-amd64:
 	GOARCH=amd64 \
 	CC="${ZIG_CC} -target x86_64-windows-gnu ${WINDOWS_AMD64_LIB_PATH} -DTAGLIB_STATIC -Wall -Wno-deprecated" \
 	CXX="${ZIG_CXX} -target x86_64-windows-gnu ${WINDOWS_AMD64_LIB_PATH} -DTAGLIB_STATIC -Wall -Wno-deprecated" \
-	${BUILD_CMD} -o=${BUILD_DIR}/beatportdl-windows-amd64.exe ${BUILD_SRC}
+	${BUILD_CMD} -o=${BUILD_DIR}/beetport-windows-amd64.exe ${BUILD_SRC}
