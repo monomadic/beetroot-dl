@@ -26,11 +26,16 @@ type ChartPerson struct {
 }
 
 func (c *Chart) DirectoryName(n NamingPreferences) string {
+	directoryName := ParseTemplate(n.Template, c.templateValues(n))
+	return SanitizePath(directoryName, n.Whitespace)
+}
+
+func (c *Chart) templateValues(n NamingPreferences) map[string]string {
 	var firstGenre string
 	if len(c.Genres) > 0 {
 		firstGenre = c.Genres[0].Name
 	}
-	templateValues := map[string]string{
+	return map[string]string{
 		"id":             strconv.Itoa(int(c.ID)),
 		"name":           SanitizeForPath(c.Name),
 		"slug":           c.Slug,
@@ -41,8 +46,6 @@ func (c *Chart) DirectoryName(n NamingPreferences) string {
 		"published_date": c.PublishDate.Format("2006-01-02"),
 		"updated_date":   c.ChangeDate.Format("2006-01-02"),
 	}
-	directoryName := ParseTemplate(n.Template, templateValues)
-	return SanitizePath(directoryName, n.Whitespace)
 }
 
 func (b *Beatport) GetChart(id int64) (*Chart, error) {

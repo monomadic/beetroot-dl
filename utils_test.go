@@ -1,10 +1,83 @@
 package main
 
 import (
+	"bufio"
+	"errors"
+	"io"
 	"os"
 	"path"
+	"strings"
 	"testing"
 )
+
+// readLines drives GetLine against a canned stdin.
+func readLines(t *testing.T, input string, n int) ([]string, error) {
+	t.Helper()
+	original := stdin
+	t.Cleanup(func() { stdin = original })
+	stdin = bufio.NewReader(strings.NewReader(input))
+
+	var got []string
+	for i := 0; i < n; i++ {
+		line, err := GetLine()
+		if err != nil {
+			return got, err
+		}
+		got = append(got, line)
+	}
+	return got, nil
+}
+
+// GetLine used to call os.Exit on Ctrl-D from deep inside the prompt, which is
+// why none of this could be tested before.
+func TestGetLine(t *testing.T) {
+	t.Run("reads successive lines", func(t *testing.T) {
+		got, err := readLines(t, "first\nsecond\n", 2)
+		if err != nil {
+			t.Fatalf("GetLine: %v", err)
+		}
+		if len(got) != 2 || got[0] != "first" || got[1] != "second" {
+			t.Fatalf("lines = %q, want [first second]", got)
+		}
+	})
+
+	t.Run("strips a trailing CR", func(t *testing.T) {
+		got, err := readLines(t, "windows\r\n", 1)
+		if err != nil {
+			t.Fatalf("GetLine: %v", err)
+		}
+		if got[0] != "windows" {
+			t.Fatalf("line = %q, want %q", got[0], "windows")
+		}
+	})
+
+	t.Run("returns io.EOF when input closes", func(t *testing.T) {
+		_, err := readLines(t, "", 1)
+		if !errors.Is(err, io.EOF) {
+			t.Fatalf("err = %v, want io.EOF", err)
+		}
+	})
+
+	t.Run("returns a final line with no newline", func(t *testing.T) {
+		got, err := readLines(t, "no trailing newline", 1)
+		if err != nil {
+			t.Fatalf("GetLine: %v", err)
+		}
+		if got[0] != "no trailing newline" {
+			t.Fatalf("line = %q", got[0])
+		}
+	})
+
+	t.Run("signals EOF after the last unterminated line", func(t *testing.T) {
+		got, err := readLines(t, "only\n", 2)
+		if !errors.Is(err, io.EOF) {
+			t.Fatalf("err = %v, want io.EOF after the input is exhausted", err)
+		}
+		if len(got) != 1 || got[0] != "only" {
+			t.Fatalf("lines = %q, want [only]", got)
+		}
+	})
+}
 
 // The config and the credential cache both live directly in the config dir —
 // $XDG_CONFIG_HOME if set, else ~/.config — on every platform. There is no

@@ -1,0 +1,93 @@
+name: Release
+
+# Publishes binaries for every platform the README advertises. Since the CGO
+# removal this is plain cross-compilation: no C toolchain, no system packages,
+# no per-target runner.
+on:
+  push:
+    tags: ['v*']
+  # Allows a dry run against a tag without pushing one.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+            ext: .exe
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          # --version reads the toolchain's build-info stamping, which needs
+          # the tag and its history rather than a bare snapshot.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          name="beetroot-dl-${GOOS}-${GOARCH}${{ matrix.ext }}"
+          go build -trimpath -o "$name"
+          echo "ARTIFACT=$name" >> "$GITHUB_ENV"
+
+      - name: Verify the binary reports a version
+        # Only meaningful on a runner that can execute what was just built.
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: ./${{ env.ARTIFACT }} --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT }}
+          path: ${{ env.ARTIFACT }}
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # A manual dispatch is a build check; only a pushed tag publishes.
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

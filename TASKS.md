@@ -1,87 +1,101 @@
 # Tasks
 
-Prioritised work list from the 2026-08-02 codebase assessment. Tick items off
-as they land; keep this file current when scope changes.
+Prioritised work list, last revised 2026-08-03. Tick items off as they land;
+keep this file current when scope changes.
 
-## P0 — Correctness and security
+Completed and dropped from this list: the 2026-08-02 P0 correctness/security
+items, the toolchain and dependency work, the module rename, CI, the CGO
+removal, and the 2026-08-03 documentation and code pass below. See the git
+history for what changed.
 
-- [x] **Route all downloads through one configured HTTP client.**
-  `cmd/beetroot-dl/utils.go` (`downloadFile`) and `cmd/beetroot-dl/needledrop.go`
-  use bare `http.Get` — no timeout, and they bypass the `proxy` setting that
-  the API client in `internal/beatport/beatport.go` honours. Track/cover/HLS
-  traffic leaks the real IP when a proxy is configured, and a stalled
-  connection hangs forever.
-- [x] **Cap the 401 retry in `fetch`.** `internal/beatport/beatport.go` retries
-  recursively on 401 with no bound — a persistent 401 loops forever,
-  re-logging-in each time. One retry, then fail.
-- [x] **Fix token data races.** `fetch` reads `auth.tokenPair.AccessToken`
-  without the auth mutex; `Auth.Check` drops the read lock before taking the
-  write lock, so concurrent workers can all trigger a refresh. Guard the read;
-  make refresh single-flight (`resenje.org/singleflight` is already vendored).
-- [x] **Write the config file 0600.** `config.Save` uses `os.Create` (0644) and
-  the file contains the plaintext password. The credentials cache already gets
-  0600 — match it.
-- [x] **Validate CBC padding in `decryptSegment`** (`needledrop.go`). A
-  malformed segment where the padding byte exceeds the segment length panics.
-  Also check segment length is a multiple of the AES block size.
-- [x] **Stop racing shared state from the signal handler.** The goroutine in
-  `main.go` reads `app.urls` and calls `printResults` while the main loop
-  mutates them.
+## P0 — Documentation accuracy
 
-## P1 — Toolchain, dependencies, infrastructure
+- [x] **Fix the stale `cmd/beetroot-dl/…` paths.** The main package moved to
+  the repo root; this file referred to a directory that no longer exists.
+- [x] **Resolve the Makefile contradiction.** An earlier entry claimed a native
+  `make build` target had landed. There is no Makefile — it went away with the
+  CGO removal.
+- [x] **One source of truth for status.** `CLAUDE.md`'s "Current state" section
+  is gone; it now points here and carries only the invariants that aren't
+  backlog items.
+- [x] **Correct the drift note in `CLAUDE.md`.** Both the chart and label
+  handlers logged `"handle playlist items"`; fixed by the deduplication below.
 
-- [x] **`go mod tidy` + `go mod vendor`.** `gopkg.in/yaml.v2` is a direct
-  dependency nothing imports (left over from the YAML→TOML migration);
-  `mattn/go-isatty` is imported directly but marked indirect.
-- [x] **Bump the Go directive** (`go 1.22.5` → current toolchain, 1.26.x) and
-  update dependencies: `BurntSushi/toml` 1.4→1.6, `fatih/color` 1.15→1.19,
-  `mpb/v8` 8.8→8.14, `grafov/m3u8` 0.12.0→0.12.1, `golang.org/x/sys` 0.28→0.47
-  (includes security fixes). All minor bumps.
-- [x] **Make the module path installable.** `monomadic/beetroot-dl` is not
-  fetchable; rename to `github.com/monomadic/beetroot-dl` so `go install`
-  works.
-- [x] **Add CI.** `.github/workflows/ci.yml` runs gofmt, a vendor-sync check,
-  build, vet and `go test -race` on ubuntu + macos, plus golangci-lint
-  (config in `.golangci.yml`, pinned to v2.6.2). A release workflow is still
-  TODO.
-- [ ] **Add tests** for the remaining pure logic: the filename/dedup logic in
-  `saveTrack`, `ForPaginated`, and date normalisation in `interactions.go`.
-  (Done so far: `config.Parse` and permissions, `decryptSegment`, the auth
-  token accessors, completions.)
-- [x] **Native `make build` target.** Added `build` / `install` / `test`
-  targets that locate taglib via pkg-config (Homebrew-prefix fallback); the
-  zig targets remain for release cross-builds.
+## P1 — Make the agent guide load-bearing
 
-## P2 — Refactors and smaller fixes
+- [x] **"How it flows"** — a diagram of arg → parse → dispatch → paginate →
+  save → tag, and where the two semaphores apply.
+- [x] **"Common changes" recipes** for adding a flag, a config option, a URL
+  type, a template keyword and a tag mapping, each naming the test that
+  enforces the coupling.
+- [x] **Search and build block** — exclude `vendor/` from searches, plus the
+  pre-push sequence mirroring `.github/workflows/ci.yml`.
+- [x] **Document the exit contract** — input helpers return errors; the
+  `onExit` global is gone.
+- [x] **Non-goals section** — no CGO, no Makefile, no ldflags `--version`, no
+  widening the errcheck exclusions, no config beside the binary.
+- [x] **Document `testdata/` and what can actually be tested** without live
+  Beatport credentials.
+- [x] **Note the `AGENTS.md` symlink** and add a last-verified anchor.
 
-- [ ] **Deduplicate the four ~100-line link handlers** in `downloader.go`
-  (`handlePlaylistLink` / `handleChartLink` / `handleLabelLink` /
-  `handleArtistLink`) into a shared per-track helper. Copy-paste drift already
-  exists — the chart handler's error says "handle playlist items".
-- [x] **Propagate context into HTTP requests** so Ctrl-C cancels in-flight
-  downloads instead of waiting for them. Done with the shared-client P0 item:
-  `app.get` builds every media request with `http.NewRequestWithContext`.
-- [ ] **Remove `os.Exit` from input helpers.** `GetLine` exits the process from
-  deep inside, patched by the global `onExit` hook in `utils.go`. Return
-  errors and decide in `main`.
-- [x] **Path handling:** use `filepath.Join` instead of `fmt.Sprintf("%s/%s")`
-  in `saveTrack` and `handleCoverFile` (Windows is a build target).
-- [x] **HLS temp file:** created 0755 and leaked on error (`downloadSegments`
-  returns `""` on failure so the caller's cleanup removes nothing).
-- [x] **Validate `quality` in `config.Parse`** — a typo currently falls through
-  silently to the default download path.
-- [x] **Simplify `getStreamSegments` signature** — returns `*[]string,
-  *StreamKey` for no reason.
-- [x] **Strategic: drop CGO taglib.** Replaced `internal/taglib` with
-  `go.senan.xyz/taglib` (real taglib compiled to WebAssembly, run in-process
-  via wazero — same property model, ~380KB embedded). The zig/SDK/.env
-  cross-compilation machinery is gone; releases are plain `GOOS=... go build`
-  and CI needs no system packages. Round-trip tests against real FLAC/M4A
-  fixtures live in `cmd/beetroot-dl/tag_test.go`.
+## P2 — Code
 
-## Suggested order
+- [x] **Deduplicate the four list handlers.** `handlePlaylistLink` /
+  `handleChartLink` / `handleLabelLink` / `handleArtistLink` now describe
+  themselves as `trackList` values and share one `handleTrackList` pipeline.
+  `downloader.go` went 862 → 760 lines.
+- [x] **Test `internal/beatport/links.go`** — table-driven over all six URL
+  types, locale/catalog prefixes and malformed input.
+- [x] **Add `httptest`-backed client tests** pinning the 401 retry cap, the
+  post-reauth retry, single-flight refresh under concurrency, and the
+  no-retry rule for auth endpoints.
+- [x] **Remove `os.Exit` from the input helpers.** `GetLine` returns
+  `(string, error)`; `exitNow` and the `onExit` global are deleted.
+- [x] **Test the remaining pure logic** — filename dedup, `ForPaginated`,
+  `normaliseDate*`, `rankMap`/`newEntityStats`, `GetLine`.
+- [x] **Add a release workflow.** `.github/workflows/release.yml`
+  cross-compiles five targets on a `v*` tag and publishes with checksums.
+- [x] **Extend `config.Parse` validation** — worker counts, `artists_limit`,
+  `cover_size`, and every template placeholder (validated against keywords
+  derived from the entity `templateValues` maps, so the two cannot drift).
 
-1. One mechanical PR: tidy, dependency bumps, module path (P1 items 1–3).
-2. One correctness PR: the six P0 items.
-3. CI + tests, so regressions get caught.
-4. Refactors as appetite allows.
+### Bugs found and fixed while doing the above
+
+- [x] **Deadlock on every token refresh.** `Auth.Check` held the `tokenPair`
+  write lock across the refresh request, and every request reads the token
+  back through `AccessToken`'s `RLock` — Go's `RWMutex` is not reentrant, so
+  any run whose cached token was within 5 minutes of expiry hung forever on
+  the first API call. Refreshes are now serialised by a separate
+  `refreshMutex` and the token lock is never held across I/O.
+- [x] **Panic on `/library` URLs.** `ParseUrl` indexed `segments[1]` without
+  checking the length.
+- [x] **Panic on a single-element `bpm_range`.** `Playlist.DirectoryName`
+  checked `len > 0` then indexed `[1]`.
+- [x] **Abandoned in-flight downloads.** A pagination error returned from a
+  list handler without waiting on its `WaitGroup`, so the run could tear down
+  the progress bars while workers were still writing.
+- [x] **Label covers ignored `keep_cover`/`fix_tags`.** The label handler
+  downloaded cover art unconditionally; the shared pipeline applies the same
+  `requireCover` gate as everything else.
+- [x] **`Pause` prompted on stdout**, violating the stdout-is-sacred rule.
+
+## P3 — Product direction
+
+- [ ] **`--json` output mode.** stdout is already machine-only; one JSON object
+  per downloaded track makes the tool a first-class pipeline citizen.
+- [ ] **`--dry-run`.** Resolve, print the target paths and filenames, download
+  nothing. Also the missing manual-test path for template changes.
+- [ ] **429 handling and backoff** in `fetch`.
+- [ ] **Resumable downloads** for large batches.
+
+## Also worth doing
+
+- [ ] **Fetch fewer full tracks in list handlers.** `handleListTrack` calls
+  `GetTrack` for every id even when the list response already carried most of
+  the track. It matches the old behaviour (all four handlers did this), but a
+  playlist of 200 tracks is 200 avoidable requests if the list payload is
+  sufficient.
+- [ ] **Cache releases across pages.** `singleflight` dedupes concurrent
+  fetches only; sequential pages of the same label refetch the same release.
+- [ ] **Cover `saveTrack`'s quality/extension switch** — it is pure branching
+  on `StreamQuality` and currently untested.

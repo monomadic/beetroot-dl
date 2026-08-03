@@ -44,11 +44,20 @@ func Setup(configPathOverride string, interactive bool) (cfg *config.AppConfig, 
 		fmt.Fprintln(os.Stderr, "Config file not found, creating a new one:", configFilePath)
 
 		fmt.Fprint(os.Stderr, "Username: ")
-		username := GetLine()
+		username, err := GetLine()
+		if err != nil {
+			return nil, configFilePath, fmt.Errorf("read username: %w", err)
+		}
 		fmt.Fprint(os.Stderr, "Password: ")
-		password := GetLine()
+		password, err := GetLine()
+		if err != nil {
+			return nil, configFilePath, fmt.Errorf("read password: %w", err)
+		}
 		fmt.Fprint(os.Stderr, "Downloads directory: ")
-		downloadsDir := GetLine()
+		downloadsDir, err := GetLine()
+		if err != nil {
+			return nil, configFilePath, fmt.Errorf("read downloads directory: %w", err)
+		}
 
 		// Start from the defaults: a bare AppConfig would write out zero values
 		// for every field we don't prompt for, and those explicit empties
@@ -62,7 +71,10 @@ func Setup(configPathOverride string, interactive bool) (cfg *config.AppConfig, 
 		fmt.Fprintln(os.Stderr, "1. Lossless (44.1 khz FLAC)\n2. High (256 kbps AAC)\n3. Medium (128 kbps AAC)\n4. Medium HLS (128 kbps AAC)")
 		for {
 			fmt.Fprint(os.Stderr, "Quality: ")
-			qualityNumber := GetLine()
+			qualityNumber, err := GetLine()
+			if err != nil {
+				return nil, configFilePath, fmt.Errorf("read quality: %w", err)
+			}
 			switch qualityNumber {
 			case "1":
 				cfg.Quality = "lossless"
@@ -97,25 +109,29 @@ func Setup(configPathOverride string, interactive bool) (cfg *config.AppConfig, 
 	return parsedConfig, cacheFilePath, nil
 }
 
-func (app *application) mainPrompt() {
+// mainPrompt asks for one URL or query. It returns io.EOF when the user quits
+// the prompt, which ends the interactive loop in main.
+func (app *application) mainPrompt() error {
 	fmt.Fprint(os.Stderr, "Enter url or search query: ")
-	input := GetLine()
+	input, err := GetLine()
+	if err != nil {
+		return err
+	}
 	if strings.HasPrefix(input, "https://www.beatport.com") {
 		if strings.Contains(input, "/label/") || strings.Contains(input, "/artist/") {
-			app.filtersPrompt(input)
-		} else {
-			app.addUrls(input)
+			return app.filtersPrompt(input)
 		}
-	} else {
-		app.search(input)
+		app.addUrls(input)
+		return nil
 	}
+	return app.search(input)
 }
 
-func (app *application) filtersPrompt(rawURL string) {
+func (app *application) filtersPrompt(rawURL string) error {
 	link, err := app.bp.ParseUrl(rawURL)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Could not parse URL:", err)
-		return
+		return nil
 	}
 
 	params := "include_facets=true&per_page=1"
@@ -128,7 +144,7 @@ func (app *application) filtersPrompt(rawURL string) {
 		labelReleases, err := app.bp.GetLabelReleases(link.ID, 1, params)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Could not fetch label releases:", err)
-			return
+			return nil
 		}
 
 		stats = newEntityStats(labelReleases.Count, &labelReleases.Facets)
@@ -137,12 +153,12 @@ func (app *application) filtersPrompt(rawURL string) {
 		artistTracks, err := app.bp.GetArtistTracks(link.ID, 1, params)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Could not fetch artist tracks:", err)
-			return
+			return nil
 		}
 
 		stats = newEntityStats(artistTracks.Count, &artistTracks.Facets)
 	default:
-		return
+		return nil
 	}
 
 	fmt.Fprintf(os.Stderr, "\n%d %s total.\n", stats.total, listItemName)
@@ -168,10 +184,13 @@ func (app *application) filtersPrompt(rawURL string) {
 		switch step {
 
 		case stepGenres:
-			sel, back := selectFromList("\nGenres", genres)
+			sel, back, err := selectFromList("\nGenres", genres)
+			if err != nil {
+				return err
+			}
 			if back {
 				fmt.Fprintln(os.Stderr, "Cancelled.")
-				return
+				return nil
 			}
 			selectedGenres = sel
 			step = stepSubgenres
@@ -181,7 +200,10 @@ func (app *application) filtersPrompt(rawURL string) {
 				step = stepArtists
 				continue
 			}
-			sel, back := selectFromList("\nSubgenres", subgenres)
+			sel, back, err := selectFromList("\nSubgenres", subgenres)
+			if err != nil {
+				return err
+			}
 			if back {
 				step = stepGenres
 				continue
@@ -194,7 +216,10 @@ func (app *application) filtersPrompt(rawURL string) {
 				step = stepDateFrom
 				continue
 			}
-			sel, back := selectFromList("\nArtists (by track count)", artists)
+			sel, back, err := selectFromList("\nArtists (by track count)", artists)
+			if err != nil {
+				return err
+			}
 			if back {
 				if len(subgenres) > 0 {
 					step = stepSubgenres
@@ -208,7 +233,11 @@ func (app *application) filtersPrompt(rawURL string) {
 
 		case stepDateFrom:
 			fmt.Fprint(os.Stderr, "\nDownload from date (e.g. 1996 or 1996-06-01, Enter for all, b to go back): ")
-			input := strings.TrimSpace(GetLine())
+			line, err := GetLine()
+			if err != nil {
+				return err
+			}
+			input := strings.TrimSpace(line)
 			if input == "b" {
 				if len(artists) > 0 {
 					step = stepArtists
@@ -224,7 +253,11 @@ func (app *application) filtersPrompt(rawURL string) {
 
 		case stepDateTo:
 			fmt.Fprint(os.Stderr, "Download up to date   (e.g. 2024 or 2024-12-31, Enter for all, b to go back): ")
-			input := strings.TrimSpace(GetLine())
+			line, err := GetLine()
+			if err != nil {
+				return err
+			}
+			input := strings.TrimSpace(line)
 			if input == "b" {
 				step = stepDateFrom
 				continue
@@ -260,14 +293,18 @@ func (app *application) filtersPrompt(rawURL string) {
 			fmt.Fprintln(os.Stderr, "  Dates:     ", dateRange)
 
 			fmt.Fprint(os.Stderr, "\nStart download? (y/n/b to go back): ")
-			ans := strings.ToLower(strings.TrimSpace(GetLine()))
+			line, err := GetLine()
+			if err != nil {
+				return err
+			}
+			ans := strings.ToLower(strings.TrimSpace(line))
 			if ans == "b" {
 				step = stepDateTo
 				continue
 			}
 			if ans != "y" {
 				fmt.Fprintln(os.Stderr, "Cancelled.")
-				return
+				return nil
 			}
 
 			var params []string
@@ -315,29 +352,33 @@ func (app *application) filtersPrompt(rawURL string) {
 			rawURL += paramsTotal
 
 			app.addUrls(rawURL)
-			return
+			return nil
 		}
 	}
 }
 
 // selectFromList prints a numbered list and returns the names the user chose plus a back flag.
 // Returns nil on Enter & asterisk; back=true if user types b.
-func selectFromList(heading string, entries []rankEntry) ([]string, bool) {
+func selectFromList(heading string, entries []rankEntry) ([]string, bool, error) {
 	if len(entries) == 0 {
-		return nil, false
+		return nil, false, nil
 	}
 	fmt.Fprintf(os.Stderr, "%s found:\n", heading)
 	for i, e := range entries {
 		fmt.Fprintf(os.Stderr, "  %2d. %-42s %d tracks\n", i+1, e.name, e.count)
 	}
 	fmt.Fprint(os.Stderr, "Select (e.g. 1,3  |  * for all  |  Enter to skip  |  b to go back): ")
-	input := strings.TrimSpace(GetLine())
+	line, err := GetLine()
+	if err != nil {
+		return nil, false, err
+	}
+	input := strings.TrimSpace(line)
 
 	if input == "b" {
-		return nil, true
+		return nil, true, nil
 	}
 	if input == "" || input == "*" {
-		return nil, false
+		return nil, false, nil
 	}
 
 	var selected []string
@@ -350,7 +391,7 @@ func selectFromList(heading string, entries []rankEntry) ([]string, bool) {
 		}
 		selected = append(selected, entries[n-1].name)
 	}
-	return selected, false
+	return selected, false, nil
 }
 
 // normaliseDateFrom accepts "1996", "1996-06", or "1996-06-01" and returns "YYYY-MM-DD" (start of period).
@@ -384,10 +425,13 @@ func normaliseDateBound(input string, endOfPeriod bool) string {
 	}
 }
 
-func (app *application) search(input string) {
+func (app *application) search(input string) error {
 	results, err := app.bp.Search(input)
 	if err != nil {
-		app.FatalError("beatport", err)
+		// A failed search is not fatal: the prompt is still usable, so report
+		// it and let the user try again.
+		app.LogError("search", err)
+		return nil
 	}
 	trackResultsLen := len(results.Tracks)
 	releasesResultsLen := len(results.Releases)
@@ -396,7 +440,7 @@ func (app *application) search(input string) {
 
 	if totalResultsLen == 0 {
 		fmt.Fprintln(os.Stderr, "No results found")
-		return
+		return nil
 	}
 
 	fmt.Fprintln(os.Stderr, "Search results:")
@@ -427,7 +471,10 @@ func (app *application) search(input string) {
 	lastLabelNum := lastReleaseNum + labelsResultsLen
 
 	fmt.Fprint(os.Stderr, "Enter the result number(s): ")
-	input = GetLine()
+	input, err = GetLine()
+	if err != nil {
+		return err
+	}
 	requestedResults := strings.Split(input, " ")
 
 	for _, result := range requestedResults {
@@ -452,6 +499,7 @@ func (app *application) search(input string) {
 			continue
 		}
 	}
+	return nil
 }
 
 func (app *application) parseTextFile(path string) {

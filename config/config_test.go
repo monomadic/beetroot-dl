@@ -70,6 +70,40 @@ func TestParseRejectsInvalidValues(t *testing.T) {
 		"negative track number padding": {
 			minimalConfig + "track_number_padding = -1\n", "invalid track number padding",
 		},
+		// A zero worker count is a hang, not a no-op: the semaphore channel
+		// would have no capacity and every worker would block on it.
+		"zero download workers": {
+			minimalConfig + "max_download_workers = 0\n", "max_download_workers",
+		},
+		"negative global workers": {
+			minimalConfig + "max_global_workers = -1\n", "max_global_workers",
+		},
+		"zero artists limit": {
+			minimalConfig + "artists_limit = 0\n", "artists_limit",
+		},
+		"cover size without separator": {
+			minimalConfig + "cover_size = \"1400\"\n", "cover_size",
+		},
+		"cover size not numeric": {
+			minimalConfig + "cover_size = \"bigx1400\"\n", "cover_size",
+		},
+		"cover size too large": {
+			minimalConfig + "cover_size = \"2000x2000\"\n", "cover_size",
+		},
+		"cover size zero": {
+			minimalConfig + "cover_size = \"0x0\"\n", "cover_size",
+		},
+		// ParseTemplate leaves unknown placeholders verbatim, so a typo would
+		// otherwise show up literally in every filename.
+		"unknown track template placeholder": {
+			minimalConfig + "track_file_template = \"{artist} - {name}\"\n", "{artist}",
+		},
+		"track placeholder in release template": {
+			minimalConfig + "release_directory_template = \"{mix_name}\"\n", "{mix_name}",
+		},
+		"unknown artist template placeholder": {
+			minimalConfig + "artist_directory_template = \"{nmae}\"\n", "{nmae}",
+		},
 	}
 
 	for name, tc := range cases {
@@ -93,6 +127,37 @@ func TestParseAcceptsEverySupportedQuality(t *testing.T) {
 		t.Run(q, func(t *testing.T) {
 			if _, err := Parse(writeConfig(t, minimalConfig+"quality = \""+q+"\"\n")); err != nil {
 				t.Errorf("Parse with quality %q: %v", q, err)
+			}
+		})
+	}
+}
+
+// Every default template must validate against the keyword list, otherwise a
+// fresh config would be rejected on first run.
+func TestDefaultTemplatesAreValid(t *testing.T) {
+	cfg, err := Parse(writeConfig(t, minimalConfig))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if err := validateTemplates(cfg); err != nil {
+		t.Fatalf("default templates rejected: %v", err)
+	}
+}
+
+func TestParseAcceptsValidTemplatesAndCoverSizes(t *testing.T) {
+	bodies := []string{
+		"cover_size = \"500x500\"\n",
+		"cover_size = \"1400x1400\"\n",
+		"track_file_template = \"{number}. {artists} - {name} ({mix_name}) [{key}]\"\n",
+		"label_directory_template = \"{name} [{updated_date}]\"\n",
+		"playlist_directory_template = \"{name} {bpm_range} {length}\"\n",
+		// Text that is not a placeholder must pass through untouched.
+		"artist_directory_template = \"just a name\"\n",
+	}
+	for _, body := range bodies {
+		t.Run(strings.TrimSpace(body), func(t *testing.T) {
+			if _, err := Parse(writeConfig(t, minimalConfig+body)); err != nil {
+				t.Errorf("Parse: %v", err)
 			}
 		})
 	}

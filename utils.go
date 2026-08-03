@@ -108,42 +108,36 @@ func isTerminal(f *os.File) bool {
 	return isatty.IsTerminal(f.Fd()) || isatty.IsCygwinTerminal(f.Fd())
 }
 
-// onExit runs just before the process leaves through an input-handling exit
-// path (Ctrl-D at a prompt, an unreadable stdin). Those paths call os.Exit
-// deep inside GetLine, so without this hook the run's results — the paths of
-// everything already downloaded — would never be printed.
-var onExit func()
+// stdin is shared across prompts: a reader created per call would discard
+// anything it had buffered past the line it returned.
+var stdin = bufio.NewReader(os.Stdin)
 
-func exitNow(code int) {
-	if onExit != nil {
-		onExit()
-	}
-	os.Exit(code)
-}
-
-func GetLine() string {
-	reader := bufio.NewReader(os.Stdin)
-	input, err := reader.ReadString('\n')
+// GetLine reads a single line from stdin. Ctrl-D at a prompt comes back as
+// io.EOF — a normal way to quit, which the caller decides how to act on. It
+// used to call os.Exit from here, which meant the run's results had to be
+// rescued by a package-global exit hook.
+func GetLine() (string, error) {
+	input, err := stdin.ReadString('\n')
 	if err != nil {
-		switch {
-		case errors.Is(err, io.EOF):
-			// Ctrl-D at a prompt is a normal way to quit.
-			fmt.Fprintln(os.Stderr)
-			exitNow(0)
-		default:
-			fmt.Fprintf(os.Stderr, "read input string: %v\n", err)
-			exitNow(1)
+		if !errors.Is(err, io.EOF) {
+			return "", fmt.Errorf("read input: %w", err)
 		}
+		if input == "" {
+			fmt.Fprintln(os.Stderr)
+			return "", io.EOF
+		}
+		// A final line with no trailing newline is still a line.
 	}
 	input = strings.TrimSuffix(input, "\n")
 	input = strings.TrimSuffix(input, "\r")
-	return input
+	return input, nil
 }
 
 // Pause blocks for a keypress. Only ever called in interactive mode — a
 // non-interactive run must never hang waiting for a human (see Fatal).
 func Pause() {
-	fmt.Println("\nPress enter to exit")
+	// stderr, not stdout: stdout carries only downloaded paths.
+	fmt.Fprintln(os.Stderr, "\nPress enter to exit")
 	fmt.Scanln()
 	os.Exit(1)
 }

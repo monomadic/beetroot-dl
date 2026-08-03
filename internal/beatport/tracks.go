@@ -57,6 +57,14 @@ func (t *Track) SubgenreOrGenre() string {
 }
 
 func (t *Track) Filename(n NamingPreferences) string {
+	fileName := ParseTemplate(n.Template, t.templateValues(n))
+	return SanitizePath(fileName, n.Whitespace)
+}
+
+// templateValues is the single definition of which placeholders a track
+// filename template understands; TrackTemplateKeywords reads its keys, so
+// config validation cannot drift from what actually expands here.
+func (t *Track) templateValues(n NamingPreferences) map[string]string {
 	artistsString := t.Artists.Display(n.ArtistsLimit, n.ArtistsShortForm)
 	remixersString := t.Remixers.Display(n.ArtistsLimit, n.ArtistsShortForm)
 	subgenre := ""
@@ -64,7 +72,7 @@ func (t *Track) Filename(n NamingPreferences) string {
 		subgenre = t.Subgenre.Name
 	}
 
-	templateValues := map[string]string{
+	return map[string]string{
 		"id":                  strconv.Itoa(int(t.ID)),
 		"name":                SanitizeForPath(t.Name.String()),
 		"slug":                t.Slug,
@@ -82,8 +90,6 @@ func (t *Track) Filename(n NamingPreferences) string {
 		"isrc":                t.ISRC,
 		"label":               SanitizeForPath(t.Release.Label.Name),
 	}
-	fileName := ParseTemplate(n.Template, templateValues)
-	return SanitizePath(fileName, n.Whitespace)
 }
 
 func (b *Beatport) GetTrack(id int64) (*Track, error) {

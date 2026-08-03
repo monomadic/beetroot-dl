@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -269,10 +270,6 @@ func main() {
 
 	app.bp = bp
 
-	// Quitting from a prompt (Ctrl-D) exits from inside GetLine; make sure the
-	// run's results still get printed on the way out.
-	onExit = app.printResults
-
 	for _, arg := range inputArgs {
 		if strings.HasSuffix(arg, ".txt") {
 			app.parseTextFile(arg)
@@ -283,7 +280,15 @@ func main() {
 
 	for {
 		if !app.hasUrls() {
-			app.mainPrompt()
+			// Quitting the prompt with Ctrl-D (io.EOF) is a normal way to
+			// finish; anything else is a real stdin failure worth reporting.
+			// Either way the run's results are printed on the way out.
+			if err := app.mainPrompt(); err != nil {
+				if !errors.Is(err, io.EOF) {
+					app.LogError("read input", err)
+				}
+				break
+			}
 		}
 
 		urls := app.snapshotUrls()

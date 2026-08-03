@@ -79,10 +79,15 @@ func (r *Release) Year() string {
 }
 
 func (r *Release) DirectoryName(n NamingPreferences) string {
+	directoryName := ParseTemplate(n.Template, r.templateValues(n))
+	return SanitizePath(directoryName, n.Whitespace)
+}
+
+func (r *Release) templateValues(n NamingPreferences) map[string]string {
 	artistsString := r.Artists.Display(n.ArtistsLimit, n.ArtistsShortForm)
 	remixersString := r.Remixers.Display(n.ArtistsLimit, n.ArtistsShortForm)
 
-	templateValues := map[string]string{
+	return map[string]string{
 		"id":             strconv.Itoa(int(r.ID)),
 		"name":           SanitizeForPath(r.Name.String()),
 		"slug":           r.Slug,
@@ -96,6 +101,4 @@ func (r *Release) DirectoryName(n NamingPreferences) string {
 		"upc":            r.UPC,
 		"label":          SanitizeForPath(r.Label.Name),
 	}
-	directoryName := ParseTemplate(n.Template, templateValues)
-	return SanitizePath(directoryName, n.Whitespace)
 }

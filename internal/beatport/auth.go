@@ -31,7 +31,17 @@ type Auth struct {
 	password  string
 	tokenPair *tokenPair
 	cacheFile string
-	mutex     sync.RWMutex
+
+	// mutex guards tokenPair. It is only ever held around in-memory access —
+	// never across a network call. Holding it over a refresh would deadlock:
+	// refresh issues a request, and every request reads the token back through
+	// AccessToken, whose RLock cannot be taken while the write lock is held
+	// (Go's RWMutex is not reentrant).
+	mutex sync.RWMutex
+
+	// refreshMutex serialises token refreshes, so a burst of workers that all
+	// notice an expiring token produces one refresh rather than one each.
+	refreshMutex sync.Mutex
 }
 
 type tokenPair struct {
@@ -67,19 +77,34 @@ func (a *Auth) LoadCache() error {
 		return ErrLoginIDMismatch
 	}
 
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
 	a.tokenPair = &loadedToken
 
 	return nil
 }
 
-func (a *Auth) WriteCache() error {
-	data, err := json.MarshalIndent(a.tokenPair, "", " ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal tokenPair: %w", err)
-	}
+// storeToken installs a freshly issued token pair and returns it marshalled,
+// so the caller can write the cache file without holding the lock.
+func (a *Auth) storeToken(tp *tokenPair, loginID string) ([]byte, error) {
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
 
-	err = os.MkdirAll(path.Dir(a.cacheFile), 0700)
+	tp.IssuedAt = time.Now().Unix()
+	tp.LoginID = loginID
+	a.tokenPair = tp
+
+	data, err := json.MarshalIndent(tp, "", " ")
 	if err != nil {
+		return nil, fmt.Errorf("failed to marshal tokenPair: %w", err)
+	}
+	return data, nil
+}
+
+// writeCache persists an already-marshalled token pair. Called outside the
+// lock — the file write must not block other workers reading the token.
+func (a *Auth) writeCache(data []byte) error {
+	if err := os.MkdirAll(path.Dir(a.cacheFile), 0700); err != nil {
 		return fmt.Errorf("could not create folder for cache file: %w", err)
 	}
 
@@ -90,19 +115,19 @@ func (a *Auth) WriteCache() error {
 	return nil
 }
 
-// Check refreshes the token if it is within 5 minutes of expiring. The
-// expiry is re-tested after taking the write lock: without that, every worker
-// that queued on the lock would refresh again in turn, each one invalidating
-// the token the previous worker just fetched.
+// Check refreshes the token if it is within 5 minutes of expiring. The expiry
+// is re-tested after taking refreshMutex: without that, every worker that
+// queued on it would refresh again in turn, each one invalidating the token the
+// previous worker just fetched.
 func (a *Auth) Check(inst *Beatport) error {
 	if !a.expiringSoon() {
 		return nil
 	}
 
-	a.mutex.Lock()
-	defer a.mutex.Unlock()
+	a.refreshMutex.Lock()
+	defer a.refreshMutex.Unlock()
 
-	if !a.expiringSoonLocked() {
+	if !a.expiringSoon() {
 		// Another worker refreshed while we waited for the lock.
 		return nil
 	}
@@ -166,9 +191,18 @@ func (a *Auth) Init(inst *Beatport) error {
 }
 
 func (a *Auth) refresh(inst *Beatport) (*tokenPair, error) {
+	a.mutex.RLock()
+	if a.tokenPair == nil {
+		a.mutex.RUnlock()
+		return nil, errors.New("no token to refresh")
+	}
+	refreshToken := a.tokenPair.RefreshToken
+	loginId := a.tokenPair.LoginID
+	a.mutex.RUnlock()
+
 	payload := map[string]string{
 		"client_id":     clientId,
-		"refresh_token": a.tokenPair.RefreshToken,
+		"refresh_token": refreshToken,
 		"grant_type":    "refresh_token",
 	}
 
@@ -181,11 +215,12 @@ func (a *Auth) refresh(inst *Beatport) (*tokenPair, error) {
 	if err = json.NewDecoder(res.Body).Decode(response); err != nil {
 		return nil, err
 	}
-	loginId := a.tokenPair.LoginID
-	a.tokenPair = response
-	a.tokenPair.IssuedAt = time.Now().Unix()
-	a.tokenPair.LoginID = loginId
-	if err = a.WriteCache(); err != nil {
+
+	data, err := a.storeToken(response, loginId)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.writeCache(data); err != nil {
 		return nil, err
 	}
 
@@ -215,15 +250,12 @@ func (a *Auth) issue(inst *Beatport, code string) error {
 	if err = json.NewDecoder(res.Body).Decode(response); err != nil {
 		return err
 	}
-	a.tokenPair = response
-	a.tokenPair.IssuedAt = time.Now().Unix()
-	a.tokenPair.LoginID = a.loginId()
-	err = a.WriteCache()
+
+	data, err := a.storeToken(response, a.loginId())
 	if err != nil {
 		return err
 	}
-
-	return nil
+	return a.writeCache(data)
 }
 
 func (a *Auth) authorize(inst *Beatport, sessionId string) (string, error) {

@@ -3,11 +3,14 @@ package config
 import (
 	"errors"
 	"fmt"
-	"github.com/monomadic/beetroot-dl/internal/validator"
 	"os"
 	"os/exec"
 	"path"
+	"strconv"
 	"strings"
+
+	"github.com/monomadic/beetroot-dl/internal/beatport"
+	"github.com/monomadic/beetroot-dl/internal/validator"
 
 	"github.com/BurntSushi/toml"
 )
@@ -167,7 +170,85 @@ func Parse(filePath string) (*AppConfig, error) {
 		return nil, fmt.Errorf("invalid track number padding")
 	}
 
+	// A zero or negative worker count builds a zero-capacity semaphore, and
+	// every download then blocks forever on it — a silent hang rather than an
+	// error, so reject it here.
+	if config.MaxGlobalWorkers < 1 {
+		return nil, fmt.Errorf("max_global_workers must be at least 1, got %d", config.MaxGlobalWorkers)
+	}
+	if config.MaxDownloadWorkers < 1 {
+		return nil, fmt.Errorf("max_download_workers must be at least 1, got %d", config.MaxDownloadWorkers)
+	}
+
+	if config.ArtistsLimit < 1 {
+		return nil, fmt.Errorf("artists_limit must be at least 1, got %d", config.ArtistsLimit)
+	}
+
+	if err := validateCoverSize(config.CoverSize); err != nil {
+		return nil, err
+	}
+
+	if err := validateTemplates(&config); err != nil {
+		return nil, err
+	}
+
 	return &config, nil
+}
+
+// maxCoverDimension is the largest size the Beatport image CDN will serve.
+const maxCoverDimension = 1400
+
+// validateCoverSize accepts the WIDTHxHEIGHT form the image URL builder
+// expects. An unparseable value used to be substituted into the cover URL
+// verbatim, which failed later as an opaque download error.
+func validateCoverSize(size string) error {
+	width, height, found := strings.Cut(size, "x")
+	if !found {
+		return fmt.Errorf("invalid cover_size %q (expected WIDTHxHEIGHT, e.g. %s)", size, DefaultCoverSize)
+	}
+
+	for _, part := range []struct {
+		name  string
+		value string
+	}{{"width", width}, {"height", height}} {
+		n, err := strconv.Atoi(part.value)
+		if err != nil {
+			return fmt.Errorf("invalid cover_size %q: %s is not a number", size, part.name)
+		}
+		if n < 1 || n > maxCoverDimension {
+			return fmt.Errorf("invalid cover_size %q: %s must be between 1 and %d",
+				size, part.name, maxCoverDimension)
+		}
+	}
+	return nil
+}
+
+// validateTemplates rejects unknown {placeholders}. ParseTemplate leaves an
+// unrecognised placeholder in the output verbatim, so without this a typo like
+// {artist} ends up in every filename literally.
+func validateTemplates(config *AppConfig) error {
+	templates := []struct {
+		option   string
+		value    string
+		keywords []string
+	}{
+		{"track_file_template", config.TrackFileTemplate, beatport.TrackTemplateKeywords()},
+		{"release_directory_template", config.ReleaseDirectoryTemplate, beatport.ReleaseTemplateKeywords()},
+		{"playlist_directory_template", config.PlaylistDirectoryTemplate, beatport.PlaylistTemplateKeywords()},
+		{"chart_directory_template", config.ChartDirectoryTemplate, beatport.ChartTemplateKeywords()},
+		{"label_directory_template", config.LabelDirectoryTemplate, beatport.LabelTemplateKeywords()},
+		{"artist_directory_template", config.ArtistDirectoryTemplate, beatport.ArtistTemplateKeywords()},
+	}
+
+	for _, tmpl := range templates {
+		for _, placeholder := range beatport.TemplatePlaceholders(tmpl.value) {
+			if !validator.PermittedValue(placeholder, tmpl.keywords...) {
+				return fmt.Errorf("unknown placeholder {%s} in %s (available: %s)",
+					placeholder, tmpl.option, strings.Join(tmpl.keywords, ", "))
+			}
+		}
+	}
+	return nil
 }
 
 func (c *AppConfig) Save(filePath string) error {

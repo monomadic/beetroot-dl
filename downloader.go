@@ -124,6 +124,18 @@ var (
 	ErrTrackFileExists = errors.New("file already exists")
 )
 
+// uniqueFilePath finds a free "<name> (n)<ext>" beside an existing file. It is
+// reached when another worker in this run is already writing that exact name,
+// so the two must not land on the same path.
+func uniqueFilePath(directory, fileName, fileExtension string) string {
+	for i := 1; ; i++ {
+		candidate := filepath.Join(directory, fmt.Sprintf("%s (%d)%s", fileName, i, fileExtension))
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			return candidate
+		}
+	}
+}
+
 func (app *application) saveTrack(track *beatport.Track, directory string, quality string) (string, error) {
 	var fileExtension string
 	var displayQuality string
@@ -180,14 +192,7 @@ func (app *application) saveTrack(track *beatport.Track, directory string, quali
 		app.activeFilesMutex.RUnlock()
 
 		if exists {
-			i := 1
-			for {
-				filePath = filepath.Join(directory, fmt.Sprintf("%s (%d)%s", fileName, i, fileExtension))
-				if _, err := os.Stat(filePath); os.IsNotExist(err) {
-					break
-				}
-				i++
-			}
+			filePath = uniqueFilePath(directory, fileName, fileExtension)
 		} else {
 			switch app.config.TrackExists {
 			case "skip":
@@ -539,6 +544,138 @@ func (app *application) handleReleaseLink(link *beatport.Link) {
 	app.cleanup(downloadsDir)
 }
 
+// trackList describes a link whose payload is a paginated list of tracks —
+// playlists, charts, labels and artists. They differ only in how the list is
+// enumerated and how the resulting files are laid out, so they share one
+// pipeline; keeping four near-identical copies is what let the chart and label
+// handlers drift into reporting "handle playlist items" on failure.
+type trackList struct {
+	// entity names the top-level directory for the whole list.
+	entity DownloadsDirectoryEntity
+
+	// contextCover, when set, is artwork for the list directory itself rather
+	// than for any single release (charts have one; labels do not).
+	contextCover *beatport.Image
+
+	// alwaysReleaseDirs gives every track its own release subdirectory even
+	// when force_release_directories is off. Labels and artists span many
+	// releases, so flattening them into one directory would collide.
+	alwaysReleaseDirs bool
+
+	// step labels pagination failures in the error log.
+	step string
+
+	// forEachTrack drives pagination, calling yield once per track id.
+	forEachTrack func(yield func(trackID int64)) error
+}
+
+func (app *application) handleTrackList(link *beatport.Link, list trackList) {
+	downloadsDir, err := app.setupDownloadsDirectory(app.config.DownloadsDirectory, list.entity)
+	if err != nil {
+		app.errorLogWrapper(link.Original, "setup downloads directory", err)
+		return
+	}
+	app.LogVerbose("downloads directory: %s", downloadsDir)
+
+	wg := sync.WaitGroup{}
+
+	if list.contextCover != nil && app.requireCover(false, true) {
+		cover := *list.contextCover
+		app.downloadWorker(&wg, func() {
+			path, err := app.downloadCover(cover, downloadsDir)
+			if err != nil {
+				app.errorLogWrapper(link.Original, "download cover", err)
+				return
+			}
+			if err := app.handleCoverFile(path); err != nil {
+				app.errorLogWrapper(link.Original, "handle cover file", err)
+			}
+		})
+	}
+
+	// Tracks in a list frequently share a release; without this, every track
+	// of the same release would refetch it.
+	var releases singleflight.Group[int64, *beatport.Release]
+	releaseDirs := app.config.ForceReleaseDirectories || list.alwaysReleaseDirs
+
+	err = list.forEachTrack(func(trackID int64) {
+		app.downloadWorker(&wg, func() {
+			app.handleListTrack(trackID, downloadsDir, releaseDirs, &releases)
+		})
+	})
+	if err != nil {
+		app.errorLogWrapper(link.Original, list.step, err)
+		// Deliberately no early return: tracks queued before the failing page
+		// are already downloading, and abandoning them here would let the run
+		// finish — and tear down the progress bars — underneath them.
+	}
+
+	wg.Wait()
+}
+
+// handleListTrack resolves one track of a list and writes it to disk.
+func (app *application) handleListTrack(
+	trackID int64,
+	downloadsDir string,
+	releaseDirs bool,
+	releases *singleflight.Group[int64, *beatport.Release],
+) {
+	track, err := app.bp.GetTrack(trackID)
+	if err != nil {
+		app.errorLogWrapper(fmt.Sprintf("track %d", trackID), "fetch track", err)
+		return
+	}
+	trackStoreUrl := track.StoreUrl()
+
+	release, _, err := releases.Do(app.ctx, track.Release.ID, func(ctx context.Context) (*beatport.Release, error) {
+		return app.bp.GetRelease(track.Release.ID)
+	})
+	if err != nil {
+		app.errorLogWrapper(trackStoreUrl, "fetch track release", err)
+		return
+	}
+	track.Release = *release
+
+	trackDir := downloadsDir
+	if app.config.SortByContext && releaseDirs {
+		trackDir, err = app.setupDownloadsDirectory(downloadsDir, release)
+		if err != nil {
+			app.errorLogWrapper(trackStoreUrl, "setup track release directory", err)
+			return
+		}
+	}
+
+	var cover string
+	if app.requireCover(true, releaseDirs) {
+		cover, err = app.downloadCover(release.Image, trackDir)
+		if err != nil {
+			app.errorLogWrapper(trackStoreUrl, "download track release cover", err)
+		}
+	}
+
+	if err := app.handleTrack(track, trackDir, cover); err != nil {
+		app.errorLogWrapper(trackStoreUrl, "handle track", err)
+		os.Remove(cover)
+		app.cleanup(trackDir)
+		return
+	}
+
+	if releaseDirs {
+		// The cover belongs to this directory, so keep it (subject to
+		// keep_cover) rather than discarding it after tagging.
+		if err := app.handleCoverFile(cover); err != nil {
+			app.errorLogWrapper(trackStoreUrl, "handle track release cover file", err)
+			return
+		}
+	} else {
+		// Tracks from many releases share one directory here, so a single
+		// cover.jpg would be wrong; it was only fetched for tagging.
+		os.Remove(cover)
+	}
+
+	app.cleanup(trackDir)
+}
+
 func (app *application) handlePlaylistLink(link *beatport.Link) {
 	playlist, err := app.bp.GetPlaylist(link.ID)
 	if err != nil {
@@ -546,74 +683,17 @@ func (app *application) handlePlaylistLink(link *beatport.Link) {
 		return
 	}
 
-	downloadsDir, err := app.setupDownloadsDirectory(app.config.DownloadsDirectory, playlist)
-	if err != nil {
-		app.errorLogWrapper(link.Original, "setup downloads directory", err)
-		return
-	}
-
-	wg := sync.WaitGroup{}
-	err = ForPaginated[beatport.PlaylistItem](link.ID, "", app.bp.GetPlaylistItems, func(item beatport.PlaylistItem, i int) error {
-		app.downloadWorker(&wg, func() {
-			trackStoreUrl := item.Track.StoreUrl()
-
-			release, err := app.bp.GetRelease(item.Track.Release.ID)
-			if err != nil {
-				app.errorLogWrapper(trackStoreUrl, "fetch track release", err)
-				return
-			}
-			item.Track.Release = *release
-
-			trackDownloadsDir := downloadsDir
-			trackFull, err := app.bp.GetTrack(item.Track.ID)
-			if err != nil {
-				app.errorLogWrapper(trackStoreUrl, "fetch full track", err)
-				return
-			}
-			item.Track.Number = trackFull.Number
-			if app.config.SortByContext && app.config.ForceReleaseDirectories {
-				trackDownloadsDir, err = app.setupDownloadsDirectory(downloadsDir, release)
-				if err != nil {
-					app.errorLogWrapper(trackStoreUrl, "setup track release directory", err)
-					return
-				}
-			}
-
-			var cover string
-			if app.requireCover(true, app.config.ForceReleaseDirectories) {
-				cover, err = app.downloadCover(item.Track.Release.Image, trackDownloadsDir)
-				if err != nil {
-					app.errorLogWrapper(trackStoreUrl, "download track release cover", err)
-				} else if !app.config.ForceReleaseDirectories {
-					defer os.Remove(cover)
-				}
-			}
-
-			if err := app.handleTrack(&item.Track, trackDownloadsDir, cover); err != nil {
-				app.errorLogWrapper(trackStoreUrl, "handle track", err)
-				os.Remove(cover)
-				app.cleanup(trackDownloadsDir)
-				return
-			}
-
-			if app.config.ForceReleaseDirectories {
-				if err := app.handleCoverFile(cover); err != nil {
-					app.errorLogWrapper(trackStoreUrl, "handle track release cover file", err)
-					return
-				}
-			}
-
-			app.cleanup(trackDownloadsDir)
-		})
-		return nil
+	app.handleTrackList(link, trackList{
+		entity: playlist,
+		step:   "handle playlist items",
+		forEachTrack: func(yield func(trackID int64)) error {
+			return ForPaginated(link.ID, "", app.bp.GetPlaylistItems,
+				func(item beatport.PlaylistItem, _ int) error {
+					yield(item.Track.ID)
+					return nil
+				})
+		},
 	})
-
-	if err != nil {
-		app.errorLogWrapper(link.Original, "handle playlist items", err)
-		return
-	}
-
-	wg.Wait()
 }
 
 func (app *application) handleChartLink(link *beatport.Link) {
@@ -623,87 +703,18 @@ func (app *application) handleChartLink(link *beatport.Link) {
 		return
 	}
 
-	downloadsDir, err := app.setupDownloadsDirectory(app.config.DownloadsDirectory, chart)
-	if err != nil {
-		app.errorLogWrapper(link.Original, "setup downloads directory", err)
-		return
-	}
-	wg := sync.WaitGroup{}
-
-	if app.requireCover(false, true) {
-		app.downloadWorker(&wg, func() {
-			cover, err := app.downloadCover(chart.Image, downloadsDir)
-			if err != nil {
-				app.errorLogWrapper(link.Original, "download chart cover", err)
-			}
-			if err := app.handleCoverFile(cover); err != nil {
-				app.errorLogWrapper(link.Original, "handle cover file", err)
-				return
-			}
-		})
-	}
-
-	err = ForPaginated[beatport.Track](link.ID, "", app.bp.GetChartTracks, func(track beatport.Track, i int) error {
-		app.downloadWorker(&wg, func() {
-			trackStoreUrl := track.StoreUrl()
-
-			release, err := app.bp.GetRelease(track.Release.ID)
-			if err != nil {
-				app.errorLogWrapper(trackStoreUrl, "fetch track release", err)
-				return
-			}
-			track.Release = *release
-
-			trackDownloadsDir := downloadsDir
-			trackFull, err := app.bp.GetTrack(track.ID)
-			if err != nil {
-				app.errorLogWrapper(trackStoreUrl, "fetch full track", err)
-				return
-			}
-			track.Number = trackFull.Number
-			if app.config.SortByContext && app.config.ForceReleaseDirectories {
-				trackDownloadsDir, err = app.setupDownloadsDirectory(downloadsDir, release)
-				if err != nil {
-					app.errorLogWrapper(trackStoreUrl, "setup track release directory", err)
-					return
-				}
-			}
-
-			var cover string
-			if app.requireCover(true, app.config.ForceReleaseDirectories) {
-				cover, err = app.downloadCover(track.Release.Image, trackDownloadsDir)
-				if err != nil {
-					app.errorLogWrapper(trackStoreUrl, "download track release cover", err)
-				} else if !app.config.ForceReleaseDirectories {
-					defer os.Remove(cover)
-				}
-			}
-
-			if err := app.handleTrack(&track, trackDownloadsDir, cover); err != nil {
-				app.errorLogWrapper(trackStoreUrl, "handle track", err)
-				os.Remove(cover)
-				app.cleanup(trackDownloadsDir)
-				return
-			}
-
-			if app.config.ForceReleaseDirectories {
-				if err := app.handleCoverFile(cover); err != nil {
-					app.errorLogWrapper(trackStoreUrl, "handle track release cover file", err)
-					return
-				}
-			}
-
-			app.cleanup(trackDownloadsDir)
-		})
-		return nil
+	app.handleTrackList(link, trackList{
+		entity:       chart,
+		contextCover: &chart.Image,
+		step:         "handle chart tracks",
+		forEachTrack: func(yield func(trackID int64)) error {
+			return ForPaginated(link.ID, "", app.bp.GetChartTracks,
+				func(track beatport.Track, _ int) error {
+					yield(track.ID)
+					return nil
+				})
+		},
 	})
-
-	if err != nil {
-		app.errorLogWrapper(link.Original, "handle playlist items", err)
-		return
-	}
-
-	wg.Wait()
 }
 
 func (app *application) handleLabelLink(link *beatport.Link) {
@@ -713,74 +724,18 @@ func (app *application) handleLabelLink(link *beatport.Link) {
 		return
 	}
 
-	downloadsDir, err := app.setupDownloadsDirectory(app.config.DownloadsDirectory, label)
-	if err != nil {
-		app.errorLogWrapper(link.Original, "setup downloads directory", err)
-		return
-	}
-
-	wg := sync.WaitGroup{}
-	var relGroup singleflight.Group[int64, *beatport.Release]
-
-	err = ForPaginated[beatport.Track](link.ID, link.Params, app.bp.GetLabelTracks, func(t beatport.Track, i int) error {
-		app.downloadWorker(&wg, func() {
-			trackStoreUrl := t.StoreUrl()
-
-			track, err := app.bp.GetTrack(t.ID)
-			if err != nil {
-				app.errorLogWrapper(trackStoreUrl, "fetch track", err)
-				return
-			}
-
-			release, _, err := relGroup.Do(context.Background(), track.Release.ID, func(ctx context.Context) (*beatport.Release, error) {
-				release, err := app.bp.GetRelease(track.Release.ID)
-				if err != nil {
-					return nil, err
-				}
-				return release, nil
-			})
-
-			if err != nil {
-				app.errorLogWrapper(trackStoreUrl, "fetch track release", err)
-				return
-			}
-
-			track.Release = *release
-
-			releaseDir, err := app.setupDownloadsDirectory(downloadsDir, release)
-			if err != nil {
-				app.errorLogWrapper(trackStoreUrl, "setup track release downloads directory", err)
-				return
-			}
-
-			var cover string
-			cover, err = app.downloadCover(release.Image, releaseDir)
-			if err != nil {
-				app.errorLogWrapper(trackStoreUrl, "download track release cover", err)
-			}
-
-			if err := app.handleTrack(track, releaseDir, cover); err != nil {
-				app.errorLogWrapper(trackStoreUrl, "handle track", err)
-				app.cleanup(releaseDir)
-				return
-			}
-
-			if err := app.handleCoverFile(cover); err != nil {
-				app.errorLogWrapper(trackStoreUrl, "handle cover file", err)
-				return
-			}
-
-			app.cleanup(releaseDir)
-		})
-		return nil
+	app.handleTrackList(link, trackList{
+		entity:            label,
+		alwaysReleaseDirs: true,
+		step:              "handle label releases",
+		forEachTrack: func(yield func(trackID int64)) error {
+			return ForPaginated(link.ID, link.Params, app.bp.GetLabelTracks,
+				func(track beatport.Track, _ int) error {
+					yield(track.ID)
+					return nil
+				})
+		},
 	})
-
-	if err != nil {
-		app.errorLogWrapper(link.Original, "handle label releases", err)
-		return
-	}
-
-	wg.Wait()
 }
 
 func (app *application) handleArtistLink(link *beatport.Link) {
@@ -790,73 +745,16 @@ func (app *application) handleArtistLink(link *beatport.Link) {
 		return
 	}
 
-	downloadsDir, err := app.setupDownloadsDirectory(app.config.DownloadsDirectory, artist)
-	if err != nil {
-		app.errorLogWrapper(link.Original, "setup downloads directory", err)
-		return
-	}
-
-	wg := sync.WaitGroup{}
-	var relGroup singleflight.Group[int64, *beatport.Release]
-
-	err = ForPaginated[beatport.Track](link.ID, link.Params, app.bp.GetArtistTracks, func(t beatport.Track, i int) error {
-		app.downloadWorker(&wg, func() {
-			trackStoreUrl := t.StoreUrl()
-			track, err := app.bp.GetTrack(t.ID)
-			if err != nil {
-				app.errorLogWrapper(trackStoreUrl, "fetch full track", err)
-				return
-			}
-
-			release, _, err := relGroup.Do(context.Background(), track.Release.ID, func(ctx context.Context) (*beatport.Release, error) {
-				release, err := app.bp.GetRelease(track.Release.ID)
-				if err != nil {
-					return nil, err
-				}
-				return release, nil
-			})
-
-			if err != nil {
-				app.errorLogWrapper(trackStoreUrl, "fetch track release", err)
-				return
-			}
-
-			track.Release = *release
-
-			releaseDir, err := app.setupDownloadsDirectory(downloadsDir, release)
-			if err != nil {
-				app.errorLogWrapper(trackStoreUrl, "setup track release downloads directory", err)
-				return
-			}
-
-			var cover string
-			if app.requireCover(true, true) {
-				cover, err = app.downloadCover(release.Image, releaseDir)
-				if err != nil {
-					app.errorLogWrapper(trackStoreUrl, "download track release cover", err)
-				}
-			}
-
-			if err := app.handleTrack(track, releaseDir, cover); err != nil {
-				app.errorLogWrapper(trackStoreUrl, "handle track", err)
-				os.Remove(cover)
-				app.cleanup(releaseDir)
-				return
-			}
-
-			if err := app.handleCoverFile(cover); err != nil {
-				app.errorLogWrapper(trackStoreUrl, "handle cover file", err)
-				return
-			}
-
-			app.cleanup(releaseDir)
-		})
-		return nil
+	app.handleTrackList(link, trackList{
+		entity:            artist,
+		alwaysReleaseDirs: true,
+		step:              "handle artist tracks",
+		forEachTrack: func(yield func(trackID int64)) error {
+			return ForPaginated(link.ID, link.Params, app.bp.GetArtistTracks,
+				func(track beatport.Track, _ int) error {
+					yield(track.ID)
+					return nil
+				})
+		},
 	})
-	if err != nil {
-		app.errorLogWrapper(link.Original, "handle artist tracks", err)
-		return
-	}
-
-	wg.Wait()
 }

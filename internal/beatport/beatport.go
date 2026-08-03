@@ -20,6 +20,9 @@ type Beatport struct {
 	downloadClient *http.Client
 	headers        map[string]string
 	auth           *Auth
+	// baseUrl is the API root. It is always beatportBaseUrl in production;
+	// tests point it at an httptest server.
+	baseUrl string
 }
 
 type FetcherError struct {
@@ -89,6 +92,7 @@ func New(proxyUrl string, auth *Auth) (*Beatport, error) {
 		// callers pass a context for cancellation.
 		downloadClient: &http.Client{Transport: transport},
 		headers:        headers,
+		baseUrl:        beatportBaseUrl,
 	}
 	return &f, nil
 }
@@ -133,7 +137,7 @@ func (b *Beatport) fetchWithRetry(method, endpoint string, payload interface{}, 
 		}
 	}
 
-	req, err := http.NewRequest(method, beatportBaseUrl+endpoint, &body)
+	req, err := http.NewRequest(method, b.baseUrl+endpoint, &body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

@@ -25,6 +25,11 @@ type PlaylistItem struct {
 }
 
 func (p *Playlist) DirectoryName(n NamingPreferences) string {
+	directoryName := ParseTemplate(n.Template, p.templateValues(n))
+	return SanitizePath(directoryName, n.Whitespace)
+}
+
+func (p *Playlist) templateValues(n NamingPreferences) map[string]string {
 	var firstGenre string
 	var bpmRange string
 
@@ -32,11 +37,13 @@ func (p *Playlist) DirectoryName(n NamingPreferences) string {
 		firstGenre = p.Genres[0]
 	}
 
-	if len(p.BPMRange) > 0 && p.BPMRange[0] != nil && p.BPMRange[1] != nil {
+	// Both ends are needed: a single-element bpm_range would index past the
+	// end of the slice.
+	if len(p.BPMRange) >= 2 && p.BPMRange[0] != nil && p.BPMRange[1] != nil {
 		bpmRange = fmt.Sprintf("%d-%d", *p.BPMRange[0], *p.BPMRange[1])
 	}
 
-	templateValues := map[string]string{
+	return map[string]string{
 		"id":           strconv.Itoa(int(p.ID)),
 		"name":         SanitizeForPath(p.Name),
 		"first_genre":  SanitizeForPath(firstGenre),
@@ -46,8 +53,6 @@ func (p *Playlist) DirectoryName(n NamingPreferences) string {
 		"created_date": p.CreatedDate.Format("2006-01-02"),
 		"updated_date": p.UpdatedDate.Format("2006-01-02"),
 	}
-	directoryName := ParseTemplate(n.Template, templateValues)
-	return SanitizePath(directoryName, n.Whitespace)
 }
 
 func (b *Beatport) GetPlaylist(id int64) (*Playlist, error) {

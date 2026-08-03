@@ -71,6 +71,11 @@ func (b *Beatport) ParseUrl(inputURL string) (*Link, error) {
 		idSegment = 2
 		link.Type = ReleaseLink
 	case "library":
+		// "/library" on its own has no sub-type segment to look at; without
+		// this guard the switch below indexes past the end of the slice.
+		if segmentsLength < 2 {
+			return nil, ErrInvalidUrl
+		}
 		switch segments[1] {
 		case "playlists", "playlist":
 			idSegment = 2
