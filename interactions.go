@@ -50,11 +50,14 @@ func Setup(configPathOverride string, interactive bool) (cfg *config.AppConfig, 
 		fmt.Fprint(os.Stderr, "Downloads directory: ")
 		downloadsDir := GetLine()
 
-		cfg := &config.AppConfig{
-			Username:           username,
-			Password:           password,
-			DownloadsDirectory: downloadsDir,
-		}
+		// Start from the defaults: a bare AppConfig would write out zero values
+		// for every field we don't prompt for, and those explicit empties
+		// override the defaults Parse applies, failing validation immediately.
+		defaults := config.Defaults()
+		cfg := &defaults
+		cfg.Username = username
+		cfg.Password = password
+		cfg.DownloadsDirectory = downloadsDir
 
 		fmt.Fprintln(os.Stderr, "1. Lossless (44.1 khz FLAC)\n2. High (256 kbps AAC)\n3. Medium (128 kbps AAC)\n4. Medium HLS (128 kbps AAC)")
 		for {

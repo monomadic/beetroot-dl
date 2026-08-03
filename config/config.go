@@ -81,12 +81,12 @@ func FFMPEGInstalled() bool {
 	return err == nil
 }
 
-func Parse(filePath string) (*AppConfig, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, err
-	}
-	config := AppConfig{
+// Defaults returns a config with every optional field populated. Parse starts
+// from it before decoding, and the first-run wizard builds on it too — a config
+// written from a bare AppConfig would serialise zero values ("", 0) that then
+// override these defaults on the next load, failing validation.
+func Defaults() AppConfig {
+	return AppConfig{
 		Quality:                   "lossless",
 		CoverSize:                 DefaultCoverSize,
 		TrackFileTemplate:         "{number}. {artists} - {name} ({mix_name})",
@@ -105,6 +105,15 @@ func Parse(filePath string) (*AppConfig, error) {
 		MaxGlobalWorkers:          15,
 		MaxDownloadWorkers:        15,
 	}
+}
+
+func Parse(filePath string) (*AppConfig, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	config := Defaults()
 	if _, err := toml.NewDecoder(file).Decode(&config); err != nil {
 		return nil, fmt.Errorf("failed to decode config file: %w", err)
 	}
@@ -141,7 +150,8 @@ func Parse(filePath string) (*AppConfig, error) {
 	}
 
 	if !validator.PermittedValue(config.KeySystem, SupportedKeySystems...) {
-		return nil, fmt.Errorf("invalid key system")
+		return nil, fmt.Errorf("invalid key system %q (supported: %s)",
+			config.KeySystem, strings.Join(SupportedKeySystems, ", "))
 	}
 
 	if config.DownloadsDirectory == "" {
@@ -149,7 +159,8 @@ func Parse(filePath string) (*AppConfig, error) {
 	}
 
 	if !validator.PermittedValue(config.TrackExists, SupportedTrackExistsOptions...) {
-		return nil, fmt.Errorf("invalid track exists behavior")
+		return nil, fmt.Errorf("invalid track exists behavior %q (supported: %s)",
+			config.TrackExists, strings.Join(SupportedTrackExistsOptions, ", "))
 	}
 
 	if config.TrackNumberPadding > 10 || config.TrackNumberPadding < 0 {

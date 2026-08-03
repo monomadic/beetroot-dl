@@ -136,3 +136,38 @@ func TestSaveTightensExistingFilePermissions(t *testing.T) {
 		t.Errorf("config permissions = %04o, want 0600", perm)
 	}
 }
+
+// The first-run wizard saves a config built from Defaults(); anything it writes
+// must load back cleanly. Saving a bare AppConfig used to serialise zero values
+// that overrode Parse's defaults, so the very next run died on "invalid key
+// system".
+func TestSavedDefaultsRoundTrip(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "beetroot-dl.toml")
+	cfg := Defaults()
+	cfg.Username = "u"
+	cfg.Password = "p"
+	cfg.DownloadsDirectory = "/tmp/downloads"
+	if err := cfg.Save(p); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	parsed, err := Parse(p)
+	if err != nil {
+		t.Fatalf("Parse of saved config: %v", err)
+	}
+	if parsed.KeySystem != cfg.KeySystem {
+		t.Errorf("KeySystem = %q, want %q", parsed.KeySystem, cfg.KeySystem)
+	}
+	if parsed.TrackExists != cfg.TrackExists {
+		t.Errorf("TrackExists = %q, want %q", parsed.TrackExists, cfg.TrackExists)
+	}
+	if parsed.CoverSize != cfg.CoverSize {
+		t.Errorf("CoverSize = %q, want %q", parsed.CoverSize, cfg.CoverSize)
+	}
+	if parsed.MaxDownloadWorkers != cfg.MaxDownloadWorkers {
+		t.Errorf("MaxDownloadWorkers = %d, want %d", parsed.MaxDownloadWorkers, cfg.MaxDownloadWorkers)
+	}
+	if parsed.TrackFileTemplate != cfg.TrackFileTemplate {
+		t.Errorf("TrackFileTemplate = %q, want %q", parsed.TrackFileTemplate, cfg.TrackFileTemplate)
+	}
+}
