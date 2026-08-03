@@ -117,8 +117,8 @@ func TestFetchSucceedsAfterReauth(t *testing.T) {
 
 	// Let the first request 401, then let the endpoint recover.
 	var once sync.Once
-	original := ts.Server.Config.Handler
-	ts.Server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	original := ts.Config.Handler
+	ts.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		original.ServeHTTP(w, r)
 		// Recover only *after* the first catalog request has been answered,
 		// so that request is the one that 401s.
