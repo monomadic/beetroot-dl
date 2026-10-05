@@ -70,6 +70,8 @@ type application struct {
 	downloadedMutex sync.Mutex
 
 	bp *beatport.Beatport
+	// Optional library observer; called on the worker performing a transfer.
+	progress func(done, total int64)
 }
 
 // addUrls queues URLs for the current pass.

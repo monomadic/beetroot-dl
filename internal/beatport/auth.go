@@ -132,7 +132,7 @@ func (a *Auth) Check(inst *Beatport) error {
 		return nil
 	}
 
-	fmt.Fprintln(os.Stderr, "Refreshing token")
+	inst.log("Refreshing token")
 	if _, err := a.refresh(inst); err != nil {
 		if err = a.Init(inst); err != nil {
 			return fmt.Errorf("invalid token and authorization error: %w", err)
@@ -175,7 +175,7 @@ func (a *Auth) Invalidate() {
 }
 
 func (a *Auth) Init(inst *Beatport) error {
-	fmt.Fprintln(os.Stderr, "Logging in")
+	inst.log("Logging in")
 	sessionId, err := a.login(inst)
 	if err != nil {
 		return fmt.Errorf("login: %v", err)

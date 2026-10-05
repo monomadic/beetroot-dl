@@ -189,7 +189,9 @@ testable, and where the existing tests live:
 
 Decisions already made and paid for; do not undo them without a reason:
 
-- **No CGO.** Tagging is WebAssembly taglib precisely so that `go install`
+- **No CGO in the normal CLI.** The optional `beetroot_library` prototype
+  deliberately uses CGO for C exports (see `docs/C_LIBRARY.md`).
+  Tagging is WebAssembly taglib precisely so that `go install`
   works on a bare machine and cross-compiling needs no C toolchain.
 - **No Makefile**, no zig, no build scripts. `go build` is the build.
 - **No ldflags plumbing for `--version`.** It comes from the toolchain's own

@@ -90,6 +90,11 @@ history for what changed.
 
 ## Also worth doing
 
+- [x] **Prototype a static C archive for Rust integration.** Optional
+  `beetroot_library` tag, persistent clients, request handles, API/transfer
+  cancellation, polling progress, shared direct-download/tagging code.
+  See `docs/C_LIBRARY.md`; VirtualDJ runtime lifetime remains a separate gate.
+
 - [ ] **Fetch fewer full tracks in list handlers.** `handleListTrack` calls
   `GetTrack` for every id even when the list response already carried most of
   the track. It matches the old behaviour (all four handlers did this), but a

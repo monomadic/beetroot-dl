@@ -10,3 +10,4 @@ beetroot-dl-credentials.json
 beetroot-dl.toml
 downloads/
 /beetroot-dl
+/build/

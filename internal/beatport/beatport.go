@@ -2,12 +2,15 @@ package beatport
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 )
 
@@ -22,7 +25,9 @@ type Beatport struct {
 	auth           *Auth
 	// baseUrl is the API root. It is always beatportBaseUrl in production;
 	// tests point it at an httptest server.
-	baseUrl string
+	baseUrl     string
+	ctx         context.Context
+	diagnostics io.Writer
 }
 
 type FetcherError struct {
@@ -104,6 +109,28 @@ func (b *Beatport) DownloadClient() *http.Client {
 	return b.downloadClient
 }
 
+// WithContext shares the connection pool and authentication, while binding
+// all API calls (including refresh/login) to one operation's lifetime.
+func (b *Beatport) WithContext(ctx context.Context) *Beatport {
+	copy := *b
+	copy.ctx = ctx
+	return &copy
+}
+
+func (b *Beatport) WithDiagnostics(w io.Writer) *Beatport {
+	copy := *b
+	copy.diagnostics = w
+	return &copy
+}
+
+func (b *Beatport) log(message string) {
+	w := b.diagnostics
+	if w == nil {
+		w = os.Stderr
+	}
+	fmt.Fprintln(w, message)
+}
+
 // fetch performs an authenticated request. A 401 triggers one re-auth and one
 // retry; a second 401 is returned as an error rather than retried, so a
 // persistently rejecting endpoint cannot spin forever re-logging-in.
@@ -113,6 +140,13 @@ func (b *Beatport) fetch(method, endpoint string, payload interface{}, contentTy
 
 func (b *Beatport) fetchWithRetry(method, endpoint string, payload interface{}, contentType string, retriesLeft int) (*http.Response, error) {
 	var body bytes.Buffer
+	ctx := b.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	if endpoint != tokenEndpoint && endpoint != authEndpoint && endpoint != loginEndpoint {
 		if err := b.auth.Check(b); err != nil {
@@ -137,7 +171,7 @@ func (b *Beatport) fetchWithRetry(method, endpoint string, payload interface{}, 
 		}
 	}
 
-	req, err := http.NewRequest(method, b.baseUrl+endpoint, &body)
+	req, err := http.NewRequestWithContext(ctx, method, b.baseUrl+endpoint, &body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

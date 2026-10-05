@@ -79,6 +79,10 @@ beetroot-dl "$URL" | while read -r f; do process "$f"; done || echo "something f
 
 ## Highlights over upstream
 
+An optional [static C library prototype](docs/C_LIBRARY.md) lets Rust/C hosts
+reuse the downloader in-process. It requires CGO for the archive build;
+the normal CLI retains its pure-Go build.
+
 - Scriptable by default: downloads what you asked for and exits; stdout
   carries only the downloaded file paths, so output pipes cleanly.
 - Real exit codes (`0` ok, `1` failure, `2` usage, `130` interrupted).

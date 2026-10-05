@@ -57,13 +57,38 @@ func (app *application) downloadFile(url string, destination string, pbPrefix st
 			return err
 		}
 	} else {
-		_, err = io.Copy(out, resp.Body)
+		var reader io.Reader = resp.Body
+		if app.progress != nil {
+			app.progress(0, resp.ContentLength)
+			reader = &progressReader{reader: resp.Body, total: resp.ContentLength, report: app.progress}
+		}
+		_, err = io.Copy(out, reader)
 		if err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+type progressReader struct {
+	reader      io.Reader
+	done, total int64
+	report      func(int64, int64)
+}
+
+func (r *progressReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	r.done += int64(n)
+	r.report(r.done, r.total)
+	return n, err
+}
+
+func (app *application) diagnosticWriter() io.Writer {
+	if app.logWriter != nil {
+		return app.logWriter
+	}
+	return os.Stderr
 }
 
 func toMetaFunc(c *color.Color) func(string) string {

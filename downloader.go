@@ -217,7 +217,7 @@ func (app *application) saveTrack(track *beatport.Track, directory string, quali
 	if app.config.ShowProgress {
 		prefix = infoDisplay
 	} else {
-		fmt.Fprintln(os.Stderr, "Downloading "+infoDisplay)
+		fmt.Fprintln(app.diagnosticWriter(), "Downloading "+infoDisplay)
 	}
 
 	app.LogVerbose("writing to %s", filePath)
@@ -246,7 +246,7 @@ func (app *application) saveTrack(track *beatport.Track, directory string, quali
 	}
 
 	if !app.config.ShowProgress {
-		fmt.Fprintf(os.Stderr, "Finished downloading %s\n", infoDisplay)
+		fmt.Fprintf(app.diagnosticWriter(), "Finished downloading %s\n", infoDisplay)
 	}
 
 	return filePath, nil
