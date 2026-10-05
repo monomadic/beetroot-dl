@@ -110,6 +110,7 @@ const usageText = `beetroot-dl — download tracks from Beatport
 USAGE
   beetroot-dl [flags] <url|query|file.txt>...
   beetroot-dl [flags] -i
+  beetroot-dl [--config PATH] search --json <query>
 
 By default it downloads what you asked for and exits. Pass -i for the
 interactive prompt loop (the old default behaviour).
@@ -133,6 +134,7 @@ FLAGS
 
 OUTPUT
   The path of each downloaded track is printed to stdout, one per line.
+  The search command prints one flat JSON object per track on stdout.
   Progress bars, errors and verbose steps go to stderr, so stdout stays
   usable in a pipe:
 
@@ -192,6 +194,12 @@ func main() {
 
 	if completions != "" {
 		runCompletions(completions)
+	}
+	// Search is a separate, non-interactive command for consumers such as
+	// VirtualDJ. Keep the normal downloader's stdout contract unchanged.
+	if flag.NArg() > 0 && flag.Arg(0) == "search" {
+		runSearchCommand(flag.Args()[1:], configPath)
+		return
 	}
 
 	inputArgs := flag.Args()

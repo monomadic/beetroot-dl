@@ -272,6 +272,13 @@ Search returns beatport results; include an `@beatsource` tag in the query to
 search beatsource instead. A search query needs `-i`, since picking a result
 requires a prompt.
 
+For tools that need search results without a prompt, use
+`beetroot-dl search --json "query"`. It prints one track per line as JSON,
+including its ID, title, artists, tempo, key, cover URL and Beatport URL.
+No match prints nothing and exits successfully; authentication or network
+errors exit nonzero with a message on stderr. A `--config PATH` option goes
+before `search` if you use a non-default config.
+
 Run `beetroot-dl --help` for the full flag list.
 
 URL types that are currently supported: **Tracks, Releases, Playlists, Charts, Labels, Artists**
